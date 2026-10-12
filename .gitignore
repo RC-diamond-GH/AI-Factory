@@ -1,0 +1,33 @@
+# eclipse
+bin
+*.launch
+.settings
+.metadata
+.classpath
+.project
+
+# idea
+out
+*.ipr
+*.iws
+*.iml
+.idea
+
+# gradle
+build
+.gradle
+.kotlin/
+
+# other
+eclipse
+run
+/logs/
+
+# Files from Forge MDK
+forge*changelog.txt
+
+# Local development toolchain and downloaded archives
+.tools/
+forge-*-mdk.zip
+temurin-jdk17.zip
+run-data/
