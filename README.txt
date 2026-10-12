@@ -1,9 +1,14 @@
-本地开发环境
+AI-Factory
 ==============================
-Minecraft 1.20.1 / Forge 47.4.10（官方推荐版）/ Gradle Wrapper 8.8。
-示例 Mod 已使用 Kotlin 2.2.21 改写，依赖 Kotlin for Forge 4.12.0。
-保留 examplemod 标识与示例配置，Mod 信息在 gradle.properties 中修改。
-Kotlin 源码位于 src\main\kotlin；开发注意事项见 documents\Kotlin开发注意事项.md。
+仓库：https://github.com/RC-diamond-GH/AI-Factory
+Minecraft 1.20.1 / Forge 47.4.10 / Gradle Wrapper 8.8。
+Kotlin 2.2.21 / Kotlin for Forge 4.12.0 / Java 17 编译目标。
+Mod ID：ai_factory；入口：com.rcdiamond.aifactory.AIFactory；版本：1.0.0。
+当前为最小可加载框架：订阅公共初始化事件并记录初始化完成。
+没有方块、物品、创造模式物品栏、业务配置或客户端专用代码。
+新增真实功能时再添加对应注册器、配置与 assets/ai_factory、data/ai_factory 资源。
+Kotlin 源码位于 src\main\kotlin\com\rcdiamond\aifactory；元数据在 gradle.properties 中配置。
+开发注意事项见 AGENTS.md；测试方案见 documents\单元测试实施方案.md。
 
 在项目目录的 PowerShell 中执行：
     . .\Set-DevEnv.ps1
@@ -27,15 +32,20 @@ Minecraft 1.20.1 的编译及开发客户端使用 Java 17 toolchain：
 以及 Set-DevEnv.ps1 中的 JAVA_HOME，以匹配本机路径。
 
 IntelliJ IDEA：打开本目录，Gradle JVM 选择 JDK 21，项目 SDK 选择 JDK 17；
-已执行 genIntellijRuns，可选择生成的客户端/服务端启动配置。
-Eclipse：可使用 genEclipseRuns 生成启动配置；Kotlin 编辑优先使用 IntelliJ IDEA。
-构建产物：build\libs\examplemod-1.0.0.jar。
-示例内容：examplemod:example_block 方块与方块物品、examplemod:example_item 食物、
-examplemod:example_tab 独立创造模式物品栏；包含模型、中英文名称、方块掉落和镐挖掘标签。
-运行发布 JAR 时，客户端与服务端均需另外安装兼容 1.20.1 的 Kotlin for Forge 4.12.x。
-本次 Kotlin 迁移不启动客户端或服务端，游戏内加载、物品栏、放置与掉落由使用者手动验证。
-构建验证：Gradle build 成功，reobfJar 已执行；发布 JAR 包含 Java 17 目标的 Kotlin 类、
-展开后的 KFF 加载器元数据和全部 8 个 JSON 资源。项目当前没有自动化测试。
+生成 IDE 启动配置：.\gradlew.bat genIntellijRuns genEclipseRuns。
+Eclipse 的启动配置可生成；Kotlin 编辑优先使用 IntelliJ IDEA。
+构建产物：build\libs\ai_factory-1.0.0.jar。
+运行发布 JAR 时，客户端与服务端均需另外安装适配 Minecraft 1.20.1 的 Kotlin for Forge。
+项目采用远端仓库既有的 Apache-2.0 许可证（LICENSE），并随发布 JAR 打包。
+LICENSE.txt、CREDITS.txt 与 changelog.txt 是 Forge MDK 随附的许可、归属与历史文件。
+
+框架迁移验证：
+    .\gradlew.bat clean build genIntellijRuns genEclipseRuns --console=plain
+构建成功，reobfJar 已执行；发布 JAR 的入口字节码目标为 Java 17，
+Forge/KFF 元数据已展开，许可证和资源包描述正确，不含旧示例内容或 Kotlin 运行库副本。
+项目当前没有自动化测试，test 显示 NO-SOURCE；这不是业务测试通过。
+按项目约束未启动客户端或服务端，实际 Forge/KFF 加载与非开发环境发布验证尚未执行。
+启动独立服务端前须自行阅读并接受 Minecraft EULA；脚本不会代为接受。
 
 官方 MDK 说明
 ==============================
