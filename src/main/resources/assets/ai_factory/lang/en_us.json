@@ -1,0 +1,23 @@
+{
+  "key.ai_factory.agent_chat": "Open AI agent chat",
+  "key.categories.ai_factory": "AI-Factory",
+  "ai_factory.chat.title": "AI-Factory Agent",
+  "ai_factory.chat.input": "Message",
+  "ai_factory.chat.hint": "For example: give me 16 diamonds",
+  "ai_factory.chat.send": "Send",
+  "ai_factory.chat.cancel": "Cancel",
+  "ai_factory.chat.clear": "Clear chat",
+  "ai_factory.chat.reload": "Reload config",
+  "ai_factory.chat.thinking": "Waiting for the assistant…",
+  "ai_factory.chat.tool_running": "Running tool %s…",
+  "ai_factory.chat.ready": "Ready. Item grants require server permission. Closing cancels this turn.",
+  "ai_factory.chat.cancelled": "Cancelled. An action already sent to the server may have taken effect; no automatic undo or retry.",
+  "ai_factory.chat.loading": "Loading config/ai-factory/ configuration…",
+  "ai_factory.chat.reloaded": "Configuration loaded; conversation reset.",
+  "ai_factory.chat.config_error": "Could not load config/ai-factory/model.toml or agent.toml.",
+  "ai_factory.chat.request_error": "The assistant request failed; this turn was not retried. Check configuration and network, or clear the conversation before retrying.",
+  "ai_factory.chat.speaker.user": "You",
+  "ai_factory.chat.speaker.assistant": "Assistant",
+  "ai_factory.chat.speaker.tool": "Tool",
+  "ai_factory.chat.speaker.system": "System"
+}

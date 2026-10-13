@@ -138,6 +138,11 @@ dependencies {
     minecraft "net.minecraftforge:forge:${minecraft_version}-${forge_version}"
     implementation "thedarkcolour:kotlinforforge:${kotlin_for_forge_version}"
 
+    testImplementation platform('org.junit:junit-bom:5.11.4')
+    testImplementation 'org.jetbrains.kotlin:kotlin-test-junit5:2.2.21'
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+
 }
 
 // This block of code expands all declared replace properties in the specified resource targets.
@@ -199,4 +204,24 @@ publishing {
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8' // Use the UTF-8 charset for Java compilation
+}
+
+tasks.named('test', Test).configure {
+    useJUnitPlatform { excludeTags 'openai-live' }
+    testLogging { events 'passed', 'failed', 'skipped' }
+}
+
+// Explicit opt-in: default build/test never reads credentials or calls a paid API.
+tasks.register('openaiIntegrationTest', Test) {
+    group = 'verification'
+    description = 'Exercises OpenAI Chat Completions using the repository .env.'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    javaLauncher = javaToolchains.launcherFor {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+    useJUnitPlatform { includeTags 'openai-live' }
+    systemProperty 'openai.envFile', layout.projectDirectory.file('.env').asFile.absolutePath
+    outputs.upToDateWhen { false }
+    testLogging { events 'passed', 'failed', 'skipped' }
 }
