@@ -2,12 +2,17 @@ package com.rcdiamond.aifactory.addon.ae2
 
 import appeng.api.networking.IGrid
 import appeng.api.networking.crafting.CalculationStrategy
+import appeng.api.networking.crafting.CraftingSubmitErrorCode
 import appeng.api.networking.crafting.ICraftingPlan
 import appeng.api.networking.crafting.ICraftingSimulationRequester
+import appeng.api.networking.crafting.ICraftingSubmitResult
+import appeng.api.networking.crafting.UnsuitableCpus
 import appeng.api.networking.security.IActionHost
 import appeng.api.networking.security.IActionSource
 import appeng.api.stacks.AEItemKey
 import appeng.api.stacks.AEKey
+import appeng.api.stacks.GenericStack
+import appeng.api.stacks.KeyCounter
 import appeng.api.storage.AEKeyFilter
 import com.mojang.logging.LogUtils
 import kotlinx.serialization.json.JsonObject
@@ -32,6 +37,7 @@ import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
 import net.minecraftforge.common.MinecraftForge
 import net.minecraftforge.event.TickEvent
+import net.minecraftforge.event.server.ServerStoppingEvent
 import java.util.Locale
 import java.util.concurrent.CancellationException
 import java.util.concurrent.ExecutionException
@@ -39,7 +45,7 @@ import java.util.concurrent.Future
 import java.util.function.Consumer
 
 /**
- * Server-side implementation of the three ME terminal operations.
+ * Server-side dispatch for the five ME terminal operations.
  *
  * The addon backend calls [execute] on the server thread once it has verified the caller's session and
  * terminal lock; this class still re-resolves the terminal itself, so it never trusts an identifier
@@ -53,12 +59,24 @@ import java.util.function.Consumer
  * so nothing is ever queued, extracted or reserved: a plan is a snapshot of what would be needed at
  * the moment it was computed.
  *
+ * ## Requesting a craft is an irreversible side effect
+ * [Ae2ToolLimits.OPERATION_REQUEST_CRAFTING] computes the same plan, then - once the calculation has
+ * finished and only if it is not a simulation - submits it with
+ * `ICraftingService.submitJob(plan, null, null, true, source)`: AE2 itself extracts the used items,
+ * runs the job and puts the output back into the network. Before that step the terminal is resolved
+ * again, the grid must be the *same* grid the plan was computed for, the key must still be craftable
+ * and the caller's [authorize] callback (the shared session lease and the mounted cell) is re-checked.
+ * A disconnection, a changed grid, a lost lease or a rejected CPU is reported as `ok:false` and never
+ * as a submitted job. A missing-item plan is rejected with the real `missingItems` instead of being
+ * submitted, since AE2 refuses an incomplete plan anyway.
+ *
  * ## Asynchronous and non-blocking
  * The calculation future is never awaited on the server thread. [register] installs one server tick
  * listener that only calls `isDone()`, then reads the finished plan and re-validates the terminal
- * before replying. Requests are bounded by [Ae2ToolLimits.MAX_PENDING_PLANS] and by
+ * before replying or submitting. Requests are bounded by [Ae2ToolLimits.MAX_PENDING_PLANS] and by
  * [Ae2ToolLimits.PLAN_TIMEOUT_TICKS]; an abandoned plan is cancelled the way AE2's own crafting
- * confirmation menu cancels one.
+ * confirmation menu cancels one, and every pending future is cancelled when the server stops so a
+ * stale plan can never submit against a later server.
  */
 object Ae2ToolExecutor {
     private val LOG = LogUtils.getLogger()
@@ -70,6 +88,13 @@ object Ae2ToolExecutor {
      * active grid and `mayInteract`.
      */
     private const val ALLOW_REMOTE_AFTER_LOCK = true
+
+    /**
+     * Passed to `ICraftingService.submitJob` as `prioritizePower`, the value AE2's own craft-confirmation
+     * screen uses: with no CPU selected AE2 auto-picks a suitable one and prefers the fastest, matching how
+     * a player-triggered craft behaves.
+     */
+    private const val PRIORITIZE_POWER = true
 
     /** Upper bound on the craftable-key probe used when a fingerprint is not in the network inventory. */
     private const val MAX_CRAFTABLE_SCAN = 20_000
@@ -97,17 +122,33 @@ object Ae2ToolExecutor {
         if (registered) return
         registered = true
         MinecraftForge.EVENT_BUS.addListener(Consumer<TickEvent.ServerTickEvent> { onServerTick(it) })
+        // Pending plans outlive a stopped server otherwise: this object, its listener and its list are
+        // static, so without this a plan computed before a shutdown could still be submitted once a new
+        // integrated server starts in the same JVM.
+        MinecraftForge.EVENT_BUS.addListener(Consumer<ServerStoppingEvent> { cancelPendingPlans() })
+    }
+
+    /** Cancels and forgets every in-flight plan; called when the server stops. */
+    private fun cancelPendingPlans() {
+        for (plan in pendingPlans) {
+            plan.future.cancel(true)
+        }
+        pendingPlans.clear()
     }
 
     /**
      * Runs one operation and replies exactly once, either immediately or later from the server tick
      * poller. Failures are reported as `{ok:false,error:...}` so the model can correct itself.
+     *
+     * [authorize] re-validates the caller's session lease and mounted cell. Mutating operations call it
+     * immediately before submission or pattern installation; read-only operations never touch it.
      */
     fun execute(
         player: ServerPlayer,
         terminal: MEIntelligentTerminalBlockEntity,
         operation: String,
         arguments: JsonObject,
+        authorize: () -> Unit,
         reply: (JsonObject) -> Unit,
     ) {
         try {
@@ -115,6 +156,11 @@ object Ae2ToolExecutor {
                 Ae2ToolLimits.OPERATION_READ_INVENTORY -> reply(readInventory(player, terminal, arguments))
                 Ae2ToolLimits.OPERATION_ITEM_DETAILS -> reply(itemDetails(player, terminal, arguments))
                 Ae2ToolLimits.OPERATION_CRAFTING_PLAN -> startCraftingPlan(player, terminal, arguments, reply)
+                Ae2ToolLimits.OPERATION_REQUEST_CRAFTING ->
+                    startCraftingRequest(player, terminal, arguments, authorize, reply)
+                Ae2ToolLimits.OPERATION_MANAGE_PATTERNS -> reply(
+                    Ae2PatternToolExecutor.execute(player, terminal, arguments, ::fingerprintOf, ::resolveKey, authorize),
+                )
                 else -> reply(failure("unknown_operation", "unsupported ME terminal operation"))
             }
         } catch (denied: TerminalUnavailable) {
@@ -217,11 +263,19 @@ object Ae2ToolExecutor {
         }
     }
 
-    private fun startCraftingPlan(
+    /**
+     * Starts a crafting-plan calculation and answers immediately for anything that is already invalid.
+     *
+     * `authorize` is null for the read-only plan and non-null for `request_crafting`; when it is set the
+     * finished plan is remembered for submission and the request is additionally restricted to item keys
+     * the grid can actually craft, so a job that could never run is refused before any calculation.
+     */
+    private fun beginPlan(
         player: ServerPlayer,
         terminal: MEIntelligentTerminalBlockEntity,
         arguments: JsonObject,
         reply: (JsonObject) -> Unit,
+        authorize: (() -> Unit)?,
     ) {
         val options = Ae2ToolArguments.craftingPlan(arguments)
         val grid = resolveGrid(player, terminal)
@@ -235,6 +289,27 @@ object Ae2ToolExecutor {
                 )
                 return
             }
+
+        if (authorize != null) {
+            if (key !is AEItemKey) {
+                reply(
+                    failure(
+                        "unsupported_key",
+                        "only item keys can be requested for crafting; fluids and other channels cannot",
+                    ),
+                )
+                return
+            }
+            if (!grid.craftingService.isCraftable(key)) {
+                reply(
+                    failure(
+                        "not_craftable",
+                        "the network has no pattern that can craft that key, so no job can be submitted",
+                    ),
+                )
+                return
+            }
+        }
 
         if (pendingPlans.size >= Ae2ToolLimits.MAX_PENDING_PLANS || pendingPlans.any { it.player === player }) {
             reply(failure("too_many_plans", "another crafting plan is still being computed; retry shortly"))
@@ -273,8 +348,24 @@ object Ae2ToolExecutor {
             requestTick = player.server.tickCount,
             reply = reply,
             future = future,
+            submission = authorize?.let { Submission(startGrid = grid, source = source, authorize = it) },
         )
     }
+
+    private fun startCraftingPlan(
+        player: ServerPlayer,
+        terminal: MEIntelligentTerminalBlockEntity,
+        arguments: JsonObject,
+        reply: (JsonObject) -> Unit,
+    ) = beginPlan(player, terminal, arguments, reply, authorize = null)
+
+    private fun startCraftingRequest(
+        player: ServerPlayer,
+        terminal: MEIntelligentTerminalBlockEntity,
+        arguments: JsonObject,
+        authorize: () -> Unit,
+        reply: (JsonObject) -> Unit,
+    ) = beginPlan(player, terminal, arguments, reply, authorize = authorize)
 
     private fun onServerTick(event: TickEvent.ServerTickEvent) {
         if (event.phase != TickEvent.Phase.END || pendingPlans.isEmpty()) return
@@ -294,8 +385,16 @@ object Ae2ToolExecutor {
 
     /** Returns true once the plan has been answered or abandoned, so the caller can drop it. */
     private fun handlePlan(plan: PendingPlan, tick: Int): Boolean = when {
+        // Checked before the future so a player who left can never cause a submission, even if the plan
+        // finished in the same tick.
+        plan.player.hasDisconnected() -> {
+            plan.future.cancel(true)
+            answer(plan, failure("terminal_unavailable", "the requesting player is no longer connected"))
+            true
+        }
+
         plan.future.isDone -> {
-            answerPlan(plan)
+            if (plan.submission == null) answerPlan(plan) else submitPlan(plan)
             true
         }
 
@@ -311,12 +410,6 @@ object Ae2ToolExecutor {
             true
         }
 
-        plan.player.hasDisconnected() -> {
-            plan.future.cancel(true)
-            answer(plan, failure("terminal_unavailable", "the requesting player is no longer connected"))
-            true
-        }
-
         else -> false
     }
 
@@ -326,27 +419,8 @@ object Ae2ToolExecutor {
      * never reported as usable context.
      */
     private fun answerPlan(plan: PendingPlan) {
-        val result = try {
-            plan.future.get()
-        } catch (failure: ExecutionException) {
-            LOG.error("ME crafting plan failed", failure.cause)
-            answer(plan, failure("plan_failed", "the crafting plan could not be computed"))
-            return
-        } catch (cancelled: CancellationException) {
-            answer(plan, failure("plan_failed", "the crafting plan was cancelled"))
-            return
-        } catch (interrupted: InterruptedException) {
-            Thread.currentThread().interrupt()
-            answer(plan, failure("plan_failed", "the crafting plan was interrupted"))
-            return
-        }
-
-        val grid: IGrid = try {
-            plan.terminal.resolve(plan.player, ALLOW_REMOTE_AFTER_LOCK)
-        } catch (denied: IllegalArgumentException) {
-            answer(plan, failure("terminal_unavailable", denied.message ?: "the ME terminal is not available"))
-            return
-        }
+        val result = finishedPlan(plan) ?: return
+        val grid = currentGrid(plan) ?: return
         if (plan.player.hasDisconnected()) {
             answer(plan, failure("terminal_unavailable", "the requesting player is no longer connected"))
             return
@@ -362,6 +436,90 @@ object Ae2ToolExecutor {
         answer(plan, json)
     }
 
+    /**
+     * Submits a finished plan for a `request_crafting` call. Every check that matters for an irreversible
+     * side effect is repeated here, on the server thread and against live state: the terminal still
+     * resolves, it is still the same grid the plan was computed for, the key is still craftable, the plan
+     * is not a simulation and the caller's session lease is still valid. Only then does AE2 extract the
+     * items and start the job. Any shortfall is answered as `ok:false`, never as a submitted job.
+     */
+    private fun submitPlan(plan: PendingPlan) {
+        val submission = plan.submission
+        if (submission == null) {
+            LOG.error("ME crafting request has no submission checks")
+            answer(plan, failure("internal_error", "the crafting request has no submission checks"))
+            return
+        }
+
+        val result = finishedPlan(plan) ?: return
+        val grid = currentGrid(plan) ?: return
+
+        if (grid !== submission.startGrid) {
+            answer(
+                plan,
+                failure(
+                    "terminal_changed",
+                    "the ME terminal is no longer on the network the plan was computed for",
+                ),
+            )
+            return
+        }
+        if (!grid.craftingService.isCraftable(plan.key)) {
+            answer(plan, failure("not_craftable", "the network no longer has a pattern that can craft that key"))
+            return
+        }
+        if (result.simulation()) {
+            answer(plan, missingItemsFailure(plan, result, grid))
+            return
+        }
+
+        // The last check before the irreversible step: the shared session lease and the mounted cell.
+        // AE2 is about to extract items, so a session that is gone must abort instead of submitting.
+        try {
+            submission.authorize()
+        } catch (denied: IllegalArgumentException) {
+            answer(plan, failure("session_lost", denied.message ?: "the shared session is no longer available"))
+            return
+        }
+
+        val submitted = try {
+            grid.craftingService.submitJob(result, null, null, PRIORITIZE_POWER, submission.source)
+        } catch (failure: Exception) {
+            LOG.error("ME crafting request submission failed", failure)
+            answer(plan, failure("submit_failed", "the crafting job could not be submitted"))
+            return
+        }
+        answer(plan, if (submitted.successful()) submittedJson(plan, result, grid) else submitFailure(plan, submitted))
+    }
+
+    /**
+     * Reads the finished plan without waiting: the caller only reaches this once `Future.isDone` is true,
+     * so `get` returns immediately and the server thread is never stalled. On failure it answers and
+     * returns null.
+     */
+    private fun finishedPlan(plan: PendingPlan): ICraftingPlan? = try {
+        plan.future.get()
+    } catch (failure: ExecutionException) {
+        LOG.error("ME crafting plan failed", failure.cause)
+        answer(plan, failure("plan_failed", "the crafting plan could not be computed"))
+        null
+    } catch (cancelled: CancellationException) {
+        answer(plan, failure("plan_failed", "the crafting plan was cancelled"))
+        null
+    } catch (interrupted: InterruptedException) {
+        Thread.currentThread().interrupt()
+        answer(plan, failure("plan_failed", "the crafting plan was interrupted"))
+        null
+    }
+
+    /** Re-resolves the terminal on the server thread; a denied terminal is answered and reported as null. */
+    private fun currentGrid(plan: PendingPlan): IGrid? = try {
+        plan.terminal.resolve(plan.player, ALLOW_REMOTE_AFTER_LOCK)
+    } catch (denied: IllegalArgumentException) {
+        answer(plan, failure("terminal_unavailable", denied.message ?: "the ME terminal is not available"))
+        null
+    }
+
     /** Delivers one reply; a failing reply path must never break the server tick loop. */
     private fun answer(plan: PendingPlan, reply: JsonObject) {
         try {
@@ -373,16 +531,7 @@ object Ae2ToolExecutor {
 
     private fun planJson(plan: PendingPlan, result: ICraftingPlan, grid: IGrid): JsonObject {
         val missing = result.missingItems()
-        val ordered = ArrayList<Ae2InventoryView.Row<AEKey>>(missing.size())
-        for (entry in missing) {
-            val key = entry.key
-            ordered += Ae2InventoryView.Row(key.id.toString(), key.displayName.string, entry.longValue, key)
-        }
-        ordered.sortWith(
-            compareByDescending<Ae2InventoryView.Row<AEKey>> { it.count }
-                .thenBy { it.name.lowercase(Locale.ROOT) }
-                .thenBy { it.id },
-        )
+        val ordered = orderedMissing(missing)
 
         val finalOutput = result.finalOutput()
 
@@ -433,6 +582,148 @@ object Ae2ToolExecutor {
         put("name", key.displayName.string)
         put("count", count)
         put("craftable", craftable)
+    }
+
+    /** Missing items ordered the way both the plan and a rejected request report them. */
+    private fun orderedMissing(missing: KeyCounter): List<Ae2InventoryView.Row<AEKey>> {
+        val ordered = ArrayList<Ae2InventoryView.Row<AEKey>>(missing.size())
+        for (entry in missing) {
+            val key = entry.key
+            ordered += Ae2InventoryView.Row(key.id.toString(), key.displayName.string, entry.longValue, key)
+        }
+        ordered.sortWith(
+            compareByDescending<Ae2InventoryView.Row<AEKey>> { it.count }
+                .thenBy { it.name.lowercase(Locale.ROOT) }
+                .thenBy { it.id },
+        )
+        return ordered
+    }
+
+    /**
+     * Reports an incomplete plan instead of submitting it: AE2 itself refuses a simulation, so this never
+     * reaches `submitJob`, and the model gets the real items the network is short of.
+     */
+    private fun missingItemsFailure(plan: PendingPlan, result: ICraftingPlan, grid: IGrid): JsonObject {
+        val ordered = orderedMissing(result.missingItems())
+        return buildJsonObject {
+            put("ok", false)
+            put("submitted", false)
+            put("error", "missing_items")
+            put(
+                "message",
+                "the network is missing items for that job, so nothing was submitted; stock or craft the " +
+                    "missing items and ask again",
+            )
+            put("key", plan.fingerprint)
+            put("amount", plan.amount)
+            put("simulation", true)
+            put("bytes", result.bytes())
+            put("missing_item_kinds", result.missingItems().size())
+            put("missing_items_truncated", ordered.size > Ae2ToolLimits.MAX_MISSING_ITEMS)
+            putJsonArray("missing_items") {
+                for (row in ordered.take(Ae2ToolLimits.MAX_MISSING_ITEMS)) {
+                    val key = row.handle
+                    add(itemJson(key, row.count, grid.craftingService.isCraftable(key)))
+                }
+            }
+        }
+    }
+
+    /**
+     * The successful answer of a `request_crafting` call: AE2 accepted the plan and the job is running. The
+     * numbers come from the same real plan that was submitted, so the output amount is what the network has
+     * started crafting.
+     */
+    private fun submittedJson(plan: PendingPlan, result: ICraftingPlan, grid: IGrid): JsonObject {
+        val finalOutput = result.finalOutput()
+        return buildJsonObject {
+            put("ok", true)
+            put("submitted", true)
+            put(
+                "note",
+                "A real crafting job is now running on the network. AE2 extracted the used items from the " +
+                    "network and the output goes back into the network, not into the player's inventory.",
+            )
+            put("key", plan.fingerprint)
+            put("type", plan.key.type.id.toString())
+            put("id", plan.key.id.toString())
+            put("name", plan.key.displayName.string)
+            put("amount", plan.amount)
+            put("simulation", false)
+            put("multiple_paths", result.multiplePaths())
+            put("bytes", result.bytes())
+            put("pattern_times", result.patternTimes().size)
+            put("used_item_kinds", result.usedItems().size())
+            put("emitted_item_kinds", result.emittedItems().size())
+            put("stored_amount", grid.storageService.cachedInventory.get(plan.key))
+            if (finalOutput != null) {
+                putJsonObject("final_output") {
+                    put("key", fingerprintOf(finalOutput.what()))
+                    put("id", finalOutput.what().id.toString())
+                    put("name", finalOutput.what().displayName.string)
+                    put("count", finalOutput.amount())
+                }
+            }
+        }
+    }
+
+    /** AE2's own rejection of a submission, including the error code and any structured detail it gave. */
+    private fun submitFailure(plan: PendingPlan, submit: ICraftingSubmitResult): JsonObject {
+        val code = submit.errorCode()
+        return buildJsonObject {
+            put("ok", false)
+            put("submitted", false)
+            put("error", "crafting_rejected")
+            put("reason", code?.name ?: "UNKNOWN")
+            put("message", submitMessage(code))
+            put("key", plan.fingerprint)
+            put("amount", plan.amount)
+            when (code) {
+                CraftingSubmitErrorCode.NO_SUITABLE_CPU_FOUND -> {
+                    val detail = submit.errorDetail() as? UnsuitableCpus
+                    if (detail != null) {
+                        putJsonObject("unsuitable_cpus") {
+                            put("offline", detail.offline())
+                            put("busy", detail.busy())
+                            put("too_small", detail.tooSmall())
+                            put("excluded", detail.excluded())
+                        }
+                    }
+                }
+
+                CraftingSubmitErrorCode.MISSING_INGREDIENT -> {
+                    val detail = submit.errorDetail() as? GenericStack
+                    if (detail != null) {
+                        putJsonObject("missing_ingredient") {
+                            put("key", fingerprintOf(detail.what()))
+                            put("id", detail.what().id.toString())
+                            put("name", detail.what().displayName.string)
+                            put("count", detail.amount())
+                        }
+                    }
+                }
+
+                else -> {}
+            }
+        }
+    }
+
+    private fun submitMessage(code: CraftingSubmitErrorCode?): String = when (code) {
+        CraftingSubmitErrorCode.INCOMPLETE_PLAN ->
+            "the plan is incomplete and was not submitted"
+        CraftingSubmitErrorCode.NO_CPU_FOUND ->
+            "the network has no crafting CPU that can run that job"
+        CraftingSubmitErrorCode.NO_SUITABLE_CPU_FOUND ->
+            "no available crafting CPU is suitable for that job"
+        CraftingSubmitErrorCode.CPU_BUSY ->
+            "the crafting CPU is already busy with another job"
+        CraftingSubmitErrorCode.CPU_OFFLINE ->
+            "the crafting CPU is offline"
+        CraftingSubmitErrorCode.CPU_TOO_SMALL ->
+            "the crafting CPU is too small for that job"
+        CraftingSubmitErrorCode.MISSING_INGREDIENT ->
+            "the network could not provide an ingredient for that job"
+        null -> "the crafting job was rejected"
     }
 
     private fun resolveGrid(player: ServerPlayer, terminal: MEIntelligentTerminalBlockEntity): IGrid = try {
@@ -543,5 +834,20 @@ object Ae2ToolExecutor {
         val requestTick: Int,
         val reply: (JsonObject) -> Unit,
         val future: Future<ICraftingPlan>,
+        /** Set only for `request_crafting`: what to re-check and then submit once the plan is ready. */
+        val submission: Submission?,
+    )
+
+    /**
+     * The extra state a `request_crafting` plan needs at submission time: the grid the plan belongs to, the
+     * action source the extraction is attributed to, and the caller's lease/mount check.
+     */
+    private class Submission(
+        /** The grid the plan was computed for; a different grid means the terminal changed networks. */
+        val startGrid: IGrid,
+        /** Reused from the calculation so the job extracts under the same player attribution. */
+        val source: IActionSource,
+        /** Re-validates the shared session lease and the mounted cell, immediately before submitting. */
+        val authorize: () -> Unit,
     )
 }

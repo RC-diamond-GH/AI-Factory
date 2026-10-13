@@ -29,7 +29,8 @@ data class SharedCell(val id: UUID, val bytes: Long)
  *
  * [execute] runs one tool operation for a lock holder. It may answer asynchronously (crafting planning is
  * polled on a server tick) through [reply]; the reply is a payload object following the
- * `{"ok":true,...}` / `{"ok":false,"error":...}` convention.
+ * `{"ok":true,...}` / `{"ok":false,"error":...}` convention. Call [authorize] immediately before
+ * asynchronous side effects to revalidate the original lease and mounted cell.
  *
  * Both methods report a rejected request by throwing [IllegalArgumentException] with a message that is safe
  * to show the requesting player (no stack traces, paths or internal ids beyond what the player supplied).
@@ -42,6 +43,7 @@ interface SharedTerminalBackend {
         terminal: JsonObject,
         operation: String,
         arguments: JsonObject,
+        authorize: () -> Unit,
         reply: (JsonObject) -> Unit,
     )
 }

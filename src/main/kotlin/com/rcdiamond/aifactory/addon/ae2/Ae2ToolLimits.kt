@@ -18,8 +18,17 @@ object Ae2ToolLimits {
     /** Computes a crafting plan (never submits a job). */
     const val OPERATION_CRAFTING_PLAN = "ae2_crafting_plan"
 
+    /** Calculates and submits a real crafting job for an existing item pattern. */
+    const val OPERATION_REQUEST_CRAFTING = "ae2_request_crafting"
+
+    /** Views, edits and installs real patterns in the current grid's pattern containers. */
+    const val OPERATION_MANAGE_PATTERNS = "ae2_manage_patterns"
+
     /** Every operation the executor accepts; anything else is rejected. */
-    val OPERATIONS: Set<String> = setOf(OPERATION_READ_INVENTORY, OPERATION_ITEM_DETAILS, OPERATION_CRAFTING_PLAN)
+    val OPERATIONS: Set<String> = setOf(
+        OPERATION_READ_INVENTORY, OPERATION_ITEM_DETAILS, OPERATION_CRAFTING_PLAN,
+        OPERATION_REQUEST_CRAFTING, OPERATION_MANAGE_PATTERNS,
+    )
 
     /** Length of the lowercase hex SHA-256 fingerprint that identifies one full AE key. */
     const val KEY_FINGERPRINT_LENGTH = 64

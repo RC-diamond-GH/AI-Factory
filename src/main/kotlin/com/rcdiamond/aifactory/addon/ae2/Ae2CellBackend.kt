@@ -81,6 +81,7 @@ object Ae2CellBackend : SharedTerminalBackend {
         terminal: JsonObject,
         operation: String,
         arguments: JsonObject,
+        authorize: () -> Unit,
         reply: (JsonObject) -> Unit,
     ) {
         val located = locate(player, terminal)
@@ -88,7 +89,7 @@ object Ae2CellBackend : SharedTerminalBackend {
         // relaxed here for the same reason as in save/state: a background turn keeps running while the screen
         // is closed. Everything else - dimension, load, active grid, interaction permission - still applies.
         located.terminal.resolve(player, allowRemote = true)
-        Ae2ToolExecutor.execute(player, located.terminal, operation, arguments, reply)
+        Ae2ToolExecutor.execute(player, located.terminal, operation, arguments, authorize, reply)
     }
 
     /**

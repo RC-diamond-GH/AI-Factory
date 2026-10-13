@@ -36,7 +36,10 @@ object SharedSessionMechanism {
     private val LOGGER = LogUtils.getLogger()
 
     /** Tool operations the core forwards to the backend; anything else is rejected before it is dispatched. */
-    val TOOL_OPERATIONS: Set<String> = setOf("ae2_read_inventory", "ae2_item_details", "ae2_crafting_plan")
+    val TOOL_OPERATIONS: Set<String> = setOf(
+        "ae2_read_inventory", "ae2_item_details", "ae2_crafting_plan",
+        "ae2_request_crafting", "ae2_manage_patterns",
+    )
 
     /** The live leases; kept private so only this object's requests can mutate the lock state. */
     private val leases = SharedSessionLeases()
@@ -241,13 +244,16 @@ object SharedSessionMechanism {
             else -> throw IllegalArgumentException("Field 'arguments' must be an object")
         }
         val lease = requireLease(player, id)
-        requireMountedCell(player, data, lease, id)
-        backend.execute(player, lease.terminal, operation, arguments) { response ->
+        val authorize = {
+            if (requireLease(player, id) !== lease) {
+                throw IllegalArgumentException("The session lock changed while the tool was running")
+            }
+            requireMountedCell(player, data, lease, id)
+        }
+        authorize()
+        backend.execute(player, lease.terminal, operation, arguments, authorize) { response ->
             try {
-                if (requireLease(player, id) !== lease) {
-                    throw IllegalArgumentException("The session lock changed while the tool was running")
-                }
-                requireMountedCell(player, data, lease, id)
+                authorize()
                 reply(response)
             } catch (rejected: IllegalArgumentException) {
                 reply(error(rejected.message ?: "The session is no longer available"))

@@ -158,8 +158,14 @@ ReAct、注册 Tool、干运行网关、观察结果与最终回答。临时 smo
 上下文保存在世界存档；客户端按 UUID / SHA-256 复用或更新本地缓存，
 使用自己的 model.toml 运行同一个 ReAct。共享会话关闭界面不取消回合，
 HUD 显示后台状态；保存确认后，界面关闭且回合结束才释放会话锁。
-新增 Tool：ae2_read_inventory、ae2_item_details、ae2_crafting_plan；
-最后一项仅计算真实 AE2 计划，不自动提交合成任务。
+ME 会话仅提供五项 Tool：ae2_read_inventory、ae2_item_details、ae2_crafting_plan、
+ae2_request_crafting、ae2_manage_patterns；不提供 give_item 或 execute_command。
+ae2_crafting_plan 只预览；ae2_request_crafting 为已有样板的物品提交真实合成任务，
+产物返回网络，不给予玩家；缺料或没有合适 CPU 时返回拒绝原因。
+ae2_manage_patterns 的 view 提供样板容器、维度、槽位与输入输出视图；
+encode_install 编码工作台 / 加工 / 切石 / 锻造样板并装入指定容器。
+空槽需要消耗网络中的一张空白样板，已有样板可原位重编码；expected 防止误覆盖。
+旧会话保留历史和提示，但使用当前 ME 工具集；普通 G 键助手的工具保持不变。
 build\libs\ai_factory-1.0.0.jar 为重混淆发布包，包含 JTokkit 的 Jar-in-Jar；
 带 -plain 后缀的中间包缺少 Tokenizer，不用于发布。AE2、GuideME 和 Kotlin 不打包进本 Mod。
 
