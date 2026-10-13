@@ -32,8 +32,8 @@
 | `client.ClientModEvents` / `ClientGameEvents` | 客户端 | `Dist.CLIENT` 隔离的按键、客户端 tick、响应与断线订阅 |
 | `AIFactory` | 两端入口 | 公共初始化时通过 `enqueueWork` 注册网络；不初始化客户端 Agent 或发起模型请求 |
 | `shared.*` | 共享纯规则 / 服务端 | 上下文编码、哈希、容量、世界存档、独占锁与服务端会话校验；无 AE2 类型 |
-| `network.SharedSessionNetwork` | 两端 | 共享会话的有界分片 RPC 与终端打开事件；独立协议版本 `"2"` |
-| `client.shared.*` | 客户端 | UUID / 哈希缓存同步、共享会话生命周期、选择界面、后台 HUD；复用 `ReactAgent` |
+| `network.SharedSessionNetwork` | 两端 | 共享会话的有界分片 RPC 与终端打开事件；独立协议版本 `"3"` |
+| `client.shared.*` | 客户端 | UUID / 哈希缓存同步、共享会话生命周期、选择界面、后台 HUD；复用 `ReactAgent`，使用独立无工具请求生成会话标题 |
 | `addon.ae2.*` | 可选集成 | 元件与终端注册、网格授权、库存 / NBT 详情 / 异步合成计划与请求 / 样板容器视图、编码与投放 |
 
 ## 3. 决策与执行路径
@@ -123,7 +123,7 @@ Tool 返回包含 `item_id`、`count`、`success`、`message` 的 JSON 观察结
 
 消息类型只有 `client.llm` 中定义的模式。固定的包方向阻止反向伪造包。处理器使用 `consumerMainThread`，服务端变更在服务端主线程执行；回复使用收到请求的网络上下文，仅发回原发送者。
 
-共享终端使用独立 `ai_factory:shared_session` 频道，版本 `"2"`；原 `game_action` 线格式与版本 `"2"` 不变。`list/create/open/save/state/tool` 的发送者以连接上的真实玩家为准，Tool 与保存必须匹配服务端会话锁。`create` 优先使用请求元件，满额时选择同网格其他有空间的已安装元件，并在响应中返回实际 `cellId`；客户端和服务端必须同时更新，不兼容共享协议 `"1"`。上下文分片只传纯 JSON，不传网格对象、Provider 或配置密钥。
+共享终端使用独立 `ai_factory:shared_session` 频道，版本 `"3"`；原 `game_action` 线格式与版本 `"2"` 不变。`list/create/open/save/state/tool` 的发送者以连接上的真实玩家为准，Tool 与保存必须匹配服务端会话锁。`create` 优先使用请求元件，满额时选择同网格其他有空间的已安装元件，并在响应中返回实际 `cellId`。名称留空时记录待自动命名标记；客户端首次成功回答后使用同一 Provider 发起独立无工具标题请求，不修改 Agent 历史。标题与正文原子保存，服务端返回标题及自动命名状态，手填或已生成标题不被覆盖。客户端和服务端必须同时更新，不兼容共享协议 `"1"` / `"2"`。上下文分片只传纯 JSON，不传网格对象、Provider 或配置密钥。
 
 `give_item` 服务端不信任客户端检查，独立执行：
 

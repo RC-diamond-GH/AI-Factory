@@ -46,6 +46,80 @@ class SharedSessionStoreTest {
     }
 
     @Test
+    fun `generated titles update the cached cell summary and survive reload without changing the context hash`() {
+        val store = SharedSessionStore()
+        val session = store.create(cellA, "新会话", context = context(10), autoTitle = true)
+        assertEquals(listOf("新会话"), store.titles(cellA))
+        val pending = SharedSessionStore.decode(store.encode()).find(session.id)
+        assertTrue(pending?.autoTitle == true)
+
+        val saved = store.replace(session.id, session.context, 1024, "铁锭合成")
+
+        assertEquals(session.hash, saved.hash)
+        assertEquals(session.tokens, saved.tokens)
+        assertFalse(saved.autoTitle)
+        assertEquals(listOf("铁锭合成"), store.titles(cellA))
+        val reloaded = SharedSessionStore.decode(store.encode())
+        assertEquals(saved, reloaded.find(session.id))
+        assertEquals(listOf("铁锭合成"), reloaded.titles(cellA))
+        assertFailsWith<IllegalArgumentException> {
+            store.replace(session.id, session.context, 1024, "再次改名")
+        }
+        assertEquals(saved, store.find(session.id))
+    }
+
+    @Test
+    fun `failed saves preserve the pending title flag and never publish a generated title`() {
+        val store = SharedSessionStore()
+        val session = store.create(cellA, "新会话", autoTitle = true)
+        val budget = store.usedBytes(cellA)
+        assertEquals(listOf("新会话"), store.titles(cellA))
+        assertFailsWith<IllegalArgumentException> {
+            store.replace(session.id, context(1000), budget, "铁锭合成")
+        }
+        for (title in listOf(" ", "t".repeat(SharedSessionLimits.MAX_TITLE_LENGTH + 1))) {
+            assertFailsWith<IllegalArgumentException> {
+                store.replace(session.id, session.context, 1024, title)
+            }
+        }
+        assertEquals(session, store.find(session.id))
+        assertEquals(listOf("新会话"), store.titles(cellA))
+        assertEquals(budget, store.usedBytes(cellA))
+    }
+
+    @Test
+    fun `manually named sessions including the placeholder cannot be automatically renamed`() {
+        val store = SharedSessionStore()
+        val session = store.create(cellA, "新会话")
+        val reloaded = SharedSessionStore.decode(store.encode())
+        assertFalse(reloaded.find(session.id)?.autoTitle ?: true)
+        assertFailsWith<IllegalArgumentException> {
+            reloaded.replace(session.id, session.context, 1024, "铁锭合成")
+        }
+        assertEquals(session, reloaded.find(session.id))
+    }
+
+    @Test
+    fun `legacy placeholder titles become eligible while other legacy names are retained`() {
+        val store = SharedSessionStore()
+        val chinese = store.create(cellA, "新会话")
+        val english = store.create(cellA, "New conversation")
+        val manual = store.create(cellA, "My factory")
+        val document = buildJsonObject {
+            put("version", SharedSessionStore.DOCUMENT_VERSION)
+            put("sessions", buildJsonArray {
+                add(sessionJson(chinese))
+                add(sessionJson(english))
+                add(sessionJson(manual))
+            })
+        }.toString().toByteArray()
+        val reloaded = SharedSessionStore.decode(document)
+        assertTrue(reloaded.find(chinese.id)?.autoTitle == true)
+        assertTrue(reloaded.find(english.id)?.autoTitle == true)
+        assertFalse(reloaded.find(manual.id)?.autoTitle ?: true)
+    }
+
+    @Test
     fun `a cell holds at most eight sessions for every tier`() {
         val store = SharedSessionStore()
         repeat(SharedSessionLimits.MAX_SESSIONS_PER_CELL) { index ->

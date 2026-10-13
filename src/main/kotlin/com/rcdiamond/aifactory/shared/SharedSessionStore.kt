@@ -24,6 +24,7 @@ data class SharedSessionRecord(
     val context: JsonObject,
     val hash: String,
     val tokens: Long,
+    val autoTitle: Boolean = false,
 ) {
     val charge: Long get() = SharedSessionLimits.chargeFor(tokens)
 }
@@ -108,6 +109,7 @@ class SharedSessionStore {
         title: String,
         id: UUID = UUID.randomUUID(),
         context: JsonObject = SharedContextCodec.empty(),
+        autoTitle: Boolean = false,
     ): SharedSessionRecord {
         requireWritable()
         requireTitle(title)
@@ -117,7 +119,7 @@ class SharedSessionStore {
             )
         }
         if (sessions.containsKey(id)) throw IllegalArgumentException("Session $id already exists")
-        val record = canonicalRecord(id, cellId, title, context)
+        val record = canonicalRecord(id, cellId, title, context, autoTitle)
         put(record)
         return record
     }
@@ -126,7 +128,12 @@ class SharedSessionStore {
      * Creates an empty session on the preferred mounted cell, or another mounted cell with room.
      * Session slots and byte budgets remain per cell; existing sessions are never moved.
      */
-    fun createInMountedCell(cells: List<SharedCell>, preferredCellId: UUID, title: String): SharedSessionRecord {
+    fun createInMountedCell(
+        cells: List<SharedCell>,
+        preferredCellId: UUID,
+        title: String,
+        autoTitle: Boolean = false,
+    ): SharedSessionRecord {
         requireWritable()
         requireTitle(title)
         val preferred = cells.firstOrNull { it.id == preferredCellId }
@@ -142,7 +149,7 @@ class SharedSessionStore {
             ?: throw IllegalArgumentException("No installed intelligent cell has room for another session")
         val id = UUID.randomUUID()
         if (sessions.containsKey(id)) throw IllegalArgumentException("Session $id already exists")
-        val record = SharedSessionRecord(id, cell.id, title, context, SharedContextCodec.hash(context), tokens)
+        val record = SharedSessionRecord(id, cell.id, title, context, SharedContextCodec.hash(context), tokens, autoTitle)
         put(record)
         return record
     }
@@ -155,14 +162,21 @@ class SharedSessionStore {
     }
 
     /**
-     * Replaces the body of session [id] with [context], which is canonicalised first.
+     * Replaces the body and, only for an automatically named session, its first generated title atomically.
      *
      * @throws IllegalArgumentException when the session does not exist.
      */
-    fun replace(id: UUID, context: JsonObject, cellBytes: Long): SharedSessionRecord {
+    fun replace(id: UUID, context: JsonObject, cellBytes: Long, generatedTitle: String? = null): SharedSessionRecord {
         requireWritable()
         val existing = sessions[id] ?: throw IllegalArgumentException("No such session")
-        val record = canonicalRecord(existing.id, existing.cellId, existing.title, context)
+        if (generatedTitle != null) {
+            requireTitle(generatedTitle)
+            require(existing.autoTitle) { "This session already has a title" }
+        }
+        val record = canonicalRecord(
+            existing.id, existing.cellId, generatedTitle ?: existing.title, context,
+            existing.autoTitle && generatedTitle == null,
+        )
         requireRoom(existing.cellId, cellBytes, id, record.tokens)
         put(record)
         return record
@@ -216,6 +230,7 @@ class SharedSessionStore {
                                 put("id", record.id.toString())
                                 put("cellId", record.cellId.toString())
                                 put("title", record.title)
+                                put("autoTitle", record.autoTitle)
                                 put("context", record.context)
                             },
                         )
@@ -286,7 +301,10 @@ class SharedSessionStore {
             val title = element.requireString("title")
             val context = element["context"] as? JsonObject
                 ?: throw IllegalArgumentException("a session has no context object")
-            return canonicalRecord(id, cellId, title, context)
+            // Older clients did not distinguish an omitted title from these translated placeholders.
+            val autoTitle = if ("autoTitle" in element) element.requireBoolean("autoTitle")
+                else title == "新会话" || title == "New conversation"
+            return canonicalRecord(id, cellId, title, context, autoTitle)
         }
     }
 }
@@ -295,7 +313,13 @@ class SharedSessionStore {
  * Builds a record whose body is canonical, deriving the hash and token count from that body so a reload can
  * never produce metadata that disagrees with the stored context.
  */
-private fun canonicalRecord(id: UUID, cellId: UUID, title: String, context: JsonObject): SharedSessionRecord {
+private fun canonicalRecord(
+    id: UUID,
+    cellId: UUID,
+    title: String,
+    context: JsonObject,
+    autoTitle: Boolean = false,
+): SharedSessionRecord {
     val canonical = SharedContextCodec.encode(SharedContextCodec.decode(context))
     return SharedSessionRecord(
         id = id,
@@ -304,5 +328,6 @@ private fun canonicalRecord(id: UUID, cellId: UUID, title: String, context: Json
         context = canonical,
         hash = SharedContextCodec.hash(canonical),
         tokens = SharedContextCodec.tokens(canonical),
+        autoTitle = autoTitle,
     )
 }

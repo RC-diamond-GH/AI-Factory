@@ -45,6 +45,7 @@
   "ai_factory.shared.cleared": "会话已清空，正在保存…",
   "ai_factory.shared.unsaved": "存在未保存内容。请重新打开此会话处理；锁仍保留。",
   "ai_factory.shared.save_failed": "服务端保存失败，本地上下文与会话锁保留。",
+  "ai_factory.shared.title_failed": "自动生成标题失败；对话仍会保存，可在后续回合再次生成。",
   "ai_factory.shared.incompatible_context": "无法解析已存储的会话。",
   "ai_factory.shared.malformed_reply": "共享会话响应无效。",
   "ai_factory.shared.rejected": "服务端拒绝了此请求。",

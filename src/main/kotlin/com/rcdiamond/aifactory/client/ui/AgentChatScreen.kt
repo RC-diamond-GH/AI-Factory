@@ -85,7 +85,9 @@ class AgentChatScreen(
 
     override fun render(graphics: GuiGraphics, mouseX: Int, mouseY: Int, partialTick: Float) {
         renderBackground(graphics)
-        graphics.drawString(font, title, 12, 16, 0xffffff)
+        graphics.drawString(
+            font, font.plainSubstrByWidth(session.conversationTitle ?: title.string, width - 24), 12, 16, 0xffffff,
+        )
         graphics.drawString(font, font.plainSubstrByWidth(session.status, width - 24), 12, 36, 0xb0b0b0)
         rebuildLines()
         graphics.fill(10, 50, width - 10, height - 42, 0x90000000.toInt())

@@ -45,6 +45,7 @@
   "ai_factory.shared.cleared": "Conversation cleared; saving…",
   "ai_factory.shared.unsaved": "Unsaved changes. Reopen this conversation to resolve; its lock is retained.",
   "ai_factory.shared.save_failed": "Server save failed. Local context and lock retained.",
+  "ai_factory.shared.title_failed": "Automatic title generation failed; the conversation will still be saved. A later turn can generate it.",
   "ai_factory.shared.incompatible_context": "Stored conversation could not be decoded.",
   "ai_factory.shared.malformed_reply": "Invalid shared-session response.",
   "ai_factory.shared.rejected": "The server rejected this request.",
