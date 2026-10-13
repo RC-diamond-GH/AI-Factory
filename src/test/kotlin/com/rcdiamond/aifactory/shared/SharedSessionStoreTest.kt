@@ -31,6 +31,95 @@ class SharedSessionStoreTest {
     }
 
     @Test
+    fun `cell titles retain document order and include sessions created after a cached read`() {
+        val store = SharedSessionStore()
+        assertEquals(emptyList(), store.titles(cellA))
+        val first = store.create(cellA, "first")
+        store.create(cellB, "other cell")
+        assertEquals(listOf("first"), store.titles(cellA))
+        store.replace(first.id, context(2000), 1024)
+        store.create(cellA, "second")
+
+        assertEquals(listOf("first", "second"), store.titles(cellA))
+        assertEquals(listOf("other cell"), store.titles(cellB))
+        assertEquals(store.titles(cellA), SharedSessionStore.decode(store.encode()).titles(cellA))
+    }
+
+    @Test
+    fun `generated titles update the cached cell summary and survive reload without changing the context hash`() {
+        val store = SharedSessionStore()
+        val session = store.create(cellA, "新会话", context = context(10), autoTitle = true)
+        assertEquals(listOf("新会话"), store.titles(cellA))
+        val pending = SharedSessionStore.decode(store.encode()).find(session.id)
+        assertTrue(pending?.autoTitle == true)
+
+        val saved = store.replace(session.id, session.context, 1024, "铁锭合成")
+
+        assertEquals(session.hash, saved.hash)
+        assertEquals(session.tokens, saved.tokens)
+        assertFalse(saved.autoTitle)
+        assertEquals(listOf("铁锭合成"), store.titles(cellA))
+        val reloaded = SharedSessionStore.decode(store.encode())
+        assertEquals(saved, reloaded.find(session.id))
+        assertEquals(listOf("铁锭合成"), reloaded.titles(cellA))
+        assertFailsWith<IllegalArgumentException> {
+            store.replace(session.id, session.context, 1024, "再次改名")
+        }
+        assertEquals(saved, store.find(session.id))
+    }
+
+    @Test
+    fun `failed saves preserve the pending title flag and never publish a generated title`() {
+        val store = SharedSessionStore()
+        val session = store.create(cellA, "新会话", autoTitle = true)
+        val budget = store.usedBytes(cellA)
+        assertEquals(listOf("新会话"), store.titles(cellA))
+        assertFailsWith<IllegalArgumentException> {
+            store.replace(session.id, context(1000), budget, "铁锭合成")
+        }
+        for (title in listOf(" ", "t".repeat(SharedSessionLimits.MAX_TITLE_LENGTH + 1))) {
+            assertFailsWith<IllegalArgumentException> {
+                store.replace(session.id, session.context, 1024, title)
+            }
+        }
+        assertEquals(session, store.find(session.id))
+        assertEquals(listOf("新会话"), store.titles(cellA))
+        assertEquals(budget, store.usedBytes(cellA))
+    }
+
+    @Test
+    fun `manually named sessions including the placeholder cannot be automatically renamed`() {
+        val store = SharedSessionStore()
+        val session = store.create(cellA, "新会话")
+        val reloaded = SharedSessionStore.decode(store.encode())
+        assertFalse(reloaded.find(session.id)?.autoTitle ?: true)
+        assertFailsWith<IllegalArgumentException> {
+            reloaded.replace(session.id, session.context, 1024, "铁锭合成")
+        }
+        assertEquals(session, reloaded.find(session.id))
+    }
+
+    @Test
+    fun `legacy placeholder titles become eligible while other legacy names are retained`() {
+        val store = SharedSessionStore()
+        val chinese = store.create(cellA, "新会话")
+        val english = store.create(cellA, "New conversation")
+        val manual = store.create(cellA, "My factory")
+        val document = buildJsonObject {
+            put("version", SharedSessionStore.DOCUMENT_VERSION)
+            put("sessions", buildJsonArray {
+                add(sessionJson(chinese))
+                add(sessionJson(english))
+                add(sessionJson(manual))
+            })
+        }.toString().toByteArray()
+        val reloaded = SharedSessionStore.decode(document)
+        assertTrue(reloaded.find(chinese.id)?.autoTitle == true)
+        assertTrue(reloaded.find(english.id)?.autoTitle == true)
+        assertFalse(reloaded.find(manual.id)?.autoTitle ?: true)
+    }
+
+    @Test
     fun `a cell holds at most eight sessions for every tier`() {
         val store = SharedSessionStore()
         repeat(SharedSessionLimits.MAX_SESSIONS_PER_CELL) { index ->
@@ -44,6 +133,106 @@ class SharedSessionStoreTest {
         // A second cell is unaffected by the first one being full.
         store.create(cellB, "elsewhere")
         assertEquals(1, store.sessionCount(cellB))
+    }
+
+    @Test
+    fun `creation prefers the selected cell even when another cell comes first`() {
+        val store = SharedSessionStore()
+        val cells = listOf(SharedCell(cellA, 1024), SharedCell(cellB, 4096))
+
+        val record = store.createInMountedCell(cells, cellB, "selected")
+
+        assertEquals(cellB, record.cellId)
+        assertEquals(0, store.sessionCount(cellA))
+        assertEquals(listOf(record), store.list(setOf(cellB)))
+        assertEquals(SharedContextCodec.tokens(record.context), record.tokens)
+        assertEquals(SharedContextCodec.hash(record.context), record.hash)
+    }
+
+    @Test
+    fun `two mounted cells allow sixteen sessions without manually switching cells`() {
+        val store = SharedSessionStore()
+        val cells = listOf(SharedCell(cellA, 1024), SharedCell(cellB, 4096))
+        val records = (0 until 16).map { store.createInMountedCell(cells, cellA, "session $it") }
+
+        assertEquals(List(8) { cellA } + List(8) { cellB }, records.map { it.cellId })
+        assertEquals(8, store.sessionCount(cellA))
+        assertEquals(8, store.sessionCount(cellB))
+        assertFailsWith<IllegalArgumentException> { store.createInMountedCell(cells, cellA, "seventeenth") }
+        assertEquals(records, store.all())
+        val reloaded = SharedSessionStore.decode(store.encode())
+        assertEquals(records, reloaded.list(setOf(cellA, cellB)))
+        assertEquals(store.usedBytes(cellA), reloaded.usedBytes(cellA))
+        assertEquals(store.usedBytes(cellB), reloaded.usedBytes(cellB))
+    }
+
+    @Test
+    fun `mounting another cell expands a previously full network and unmounting excludes it`() {
+        val store = SharedSessionStore()
+        val first = SharedCell(cellA, 1024)
+        val second = SharedCell(cellB, 1024)
+        repeat(8) { store.createInMountedCell(listOf(first), cellA, "first $it") }
+        assertFailsWith<IllegalArgumentException> { store.createInMountedCell(listOf(first), cellA, "full") }
+
+        val expanded = store.createInMountedCell(listOf(first, second), cellA, "expanded")
+
+        assertEquals(cellB, expanded.cellId)
+        assertFailsWith<IllegalArgumentException> { store.createInMountedCell(listOf(first), cellA, "removed") }
+        assertEquals(listOf(expanded), store.list(setOf(cellB)))
+        assertEquals(8, store.sessionCount(cellA))
+    }
+
+    @Test
+    fun `creation skips a byte full cell even if it has session slots left`() {
+        val store = SharedSessionStore()
+        val existing = store.create(cellA, "occupies", context = context(2000))
+        val cells = listOf(SharedCell(cellA, existing.charge), SharedCell(cellB, 1024))
+
+        val created = store.createInMountedCell(cells, cellA, "overflow")
+
+        assertEquals(cellB, created.cellId)
+        assertEquals(existing, store.find(existing.id))
+        assertEquals(existing.charge, store.usedBytes(cellA))
+        assertEquals(1, store.sessionCount(cellA))
+        assertFailsWith<IllegalArgumentException> {
+            store.createInMountedCell(listOf(cells.first(), SharedCell(cellB, created.charge)), cellA, "no bytes")
+        }
+        assertEquals(listOf(existing, created), store.all())
+    }
+
+    @Test
+    fun `an unmounted preferred cell cannot redirect creation to a mounted cell`() {
+        val store = SharedSessionStore()
+        assertFailsWith<IllegalArgumentException> {
+            store.createInMountedCell(listOf(SharedCell(cellB, 1024)), cellA, "not mounted")
+        }
+        assertTrue(store.isEmpty())
+    }
+
+    @Test
+    fun `duplicate references do not grant extra session slots`() {
+        val store = SharedSessionStore()
+        val cell = SharedCell(cellA, 1024)
+        val cells = listOf(cell, cell)
+        repeat(8) { store.createInMountedCell(cells, cellA, "session $it") }
+
+        assertFailsWith<IllegalArgumentException> { store.createInMountedCell(cells, cellA, "duplicate") }
+        assertEquals(8, store.sessionCount(cellA))
+    }
+
+    @Test
+    fun `mounted creation preserves read only storage and rejects invalid titles`() {
+        val cells = listOf(SharedCell(cellA, 1024))
+        val bytes = byteArrayOf(1, 2, 3)
+        val damaged = SharedSessionStore.decode(bytes)
+        assertFailsWith<IllegalArgumentException> { damaged.createInMountedCell(cells, cellA, "protected") }
+        assertTrue(bytes.contentEquals(damaged.encode()))
+        val store = SharedSessionStore()
+        assertFailsWith<IllegalArgumentException> { store.createInMountedCell(cells, cellA, " ") }
+        assertFailsWith<IllegalArgumentException> {
+            store.createInMountedCell(cells, cellA, "t".repeat(SharedSessionLimits.MAX_TITLE_LENGTH + 1))
+        }
+        assertTrue(store.isEmpty())
     }
 
     @Test

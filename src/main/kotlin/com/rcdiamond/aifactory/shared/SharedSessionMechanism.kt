@@ -63,15 +63,16 @@ object SharedSessionMechanism {
      * The `terminal` field of a payload is the locator `{dimension,x,y,z}`; the sender is always the
      * connection's own player and never a value from [payload].
      *
-     * - `list` `{terminal}` → `{ok,sessions:[{id,cellId,title,hash,tokens}],cells:[{id,bytes,usedBytes,sessionCount}]}`,
+     * - `list` `{terminal}` → `{ok,sessions:[{id,cellId,title,autoTitle,hash,tokens}],cells:[{id,bytes,usedBytes,sessionCount}]}`,
      *   restricted to the cells the backend reports as installed in that terminal.
-     * - `create` `{terminal,cellId,title}` → `{ok,id}`. The cell must be installed; the cell holds at most
-     *   [SharedSessionLimits.MAX_SESSIONS_PER_CELL] sessions. The client then lists or opens the new session.
-     * - `open` `{terminal,id,hash}` → `{ok,id,hash,tokens}` plus `context` **only** when the client's `hash`
+     * - `create` `{terminal,cellId,title,autoTitle}` → `{ok,id,cellId}`. Prefers the requested installed cell, then
+     *   another installed cell with room. Each cell holds at most [SharedSessionLimits.MAX_SESSIONS_PER_CELL]
+     *   sessions within its byte budget. The response names the actual cell used.
+     * - `open` `{terminal,id,hash}` → `{ok,id,title,autoTitle,hash,tokens}` plus `context` **only** when the client's `hash`
      *   differs from the server's. Acquires the exclusive lease atomically; a player may reopen the session
      *   they already own, anything else is a conflict. The acquired state is `screenOpen = true, running = false`.
-     * - `save` `{id,hash,context}` → `{ok,hash,tokens}`. Requires the caller's lease, a still-mounted cell and
-     *   an unchanged `hash` (the optimistic guard); the context is validated and charged server-side.
+     * - `save` `{id,hash,context,title?}` → `{ok,title,autoTitle,hash,tokens}`. Requires the caller's lease, a
+     *   still-mounted cell and an unchanged `hash`; context and the optional first generated title are saved atomically.
      * - `state` `{id,screenOpen,running}` → `{ok}`. Requires the lease; the lease is released exactly when both
      *   flags are false. The client must have its save acknowledged before it reports `running = false`.
      * - `tool` `{id,operation,arguments}` → whatever the backend answers, passed through unchanged. Requires the
@@ -119,6 +120,7 @@ object SharedSessionMechanism {
                 put("id", record.id.toString())
                 put("cellId", record.cellId.toString())
                 put("title", record.title)
+                put("autoTitle", record.autoTitle)
                 put("hash", record.hash)
                 put("tokens", record.tokens)
             }
@@ -149,12 +151,13 @@ object SharedSessionMechanism {
         val terminal = locator(payload)
         val cellId = payload.requireUuid("cellId")
         val title = payload.requireString("title")
-        val cell = backend.cells(player, terminal, false).firstOrNull { it.id == cellId }
-            ?: throw IllegalArgumentException("That cell is not installed in this terminal")
-        data.store.requireRoom(cellId, cell.bytes, null, SharedContextCodec.tokens(SharedContextCodec.empty()))
-        val record = data.store.create(cellId, title)
+        val cells = backend.cells(player, terminal, false)
+        val record = data.store.createInMountedCell(cells, cellId, title, payload.requireBoolean("autoTitle"))
         data.markChanged()
-        reply(ok { put("id", record.id.toString()) })
+        reply(ok {
+            put("id", record.id.toString())
+            put("cellId", record.cellId.toString())
+        })
     }
 
     private fun open(
@@ -175,6 +178,8 @@ object SharedSessionMechanism {
         reply(
             ok {
                 put("id", record.id.toString())
+                put("title", record.title)
+                put("autoTitle", record.autoTitle)
                 put("hash", record.hash)
                 put("tokens", record.tokens)
                 // The body is sent only when the client's cache is stale; a matching hash means it can reuse
@@ -200,12 +205,14 @@ object SharedSessionMechanism {
         val record = data.store.requireFresh(id, expectedHash)
         val cell = backend.cells(player, lease.terminal, true).firstOrNull { it.id == record.cellId }
             ?: throw IllegalArgumentException("That session's cell is not mounted")
-        val saved = data.store.replace(id, context, cell.bytes)
+        val saved = data.store.replace(id, context, cell.bytes, payload.stringOrNull("title"))
         data.markChanged()
         reply(
             ok {
                 put("hash", saved.hash)
                 put("tokens", saved.tokens)
+                put("title", saved.title)
+                put("autoTitle", saved.autoTitle)
             },
         )
     }

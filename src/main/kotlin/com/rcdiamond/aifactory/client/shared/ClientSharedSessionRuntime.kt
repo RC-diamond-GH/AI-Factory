@@ -103,6 +103,7 @@ object ClientSharedSessionRuntime : AgentChatSession {
     private var epoch = 0L
     private var turn: Job? = null
     private var agent: ReactAgent? = null
+    private var titleGenerator: SharedSessionTitleGenerator? = null
     private var settings: AgentSettings? = null
     private var active: Active? = null
     private var lastSaveFailure: String? = null
@@ -115,6 +116,7 @@ object ClientSharedSessionRuntime : AgentChatSession {
         private set
     override var status: String = ""
         private set
+    override val conversationTitle: String? get() = active?.title
 
     /** A shared turn survives its screen; only the server decides when the session may be released. */
     override val cancelTurnOnClose: Boolean get() = false
@@ -122,11 +124,13 @@ object ClientSharedSessionRuntime : AgentChatSession {
     /** One session this client has open and the server still associates with this player. */
     private class Active(
         val id: UUID,
-        val title: String,
+        var title: String,
+        var autoTitle: Boolean,
         var serverHash: String,
         var tokens: Long,
         var screenOpen: Boolean,
         var running: Boolean,
+        var pendingTitle: String? = null,
     )
 
     // ----------------------------------------------------------------- events
@@ -153,6 +157,7 @@ object ClientSharedSessionRuntime : AgentChatSession {
         scope = CoroutineScope(SupervisorJob() + clientDispatcher)
         commands = Mutex()
         agent = null
+        titleGenerator = null
         settings = null
         active = null
         lastSaveFailure = null
@@ -182,7 +187,7 @@ object ClientSharedSessionRuntime : AgentChatSession {
         }
     }
 
-    /** Creates a session in [cellId], opens it, and reports it; the callback runs on the client thread. */
+    /** Creates on [cellId] or another mounted cell with room, then opens it on the client thread. */
     fun create(terminal: JsonObject, cellId: UUID, title: String, onResult: (SharedSessionInfo?, String?) -> Unit) {
         val generation = epoch
         val requested = title.trim().ifEmpty { text("ai_factory.shared.untitled") }
@@ -198,12 +203,15 @@ object ClientSharedSessionRuntime : AgentChatSession {
                         put("terminal", terminal)
                         put("cellId", cellId.toString())
                         put("title", requested)
+                        put("autoTitle", title.isBlank())
                     },
                     SharedSessionRpc.BULK_TIMEOUT_MILLIS,
                 )
                 val id = response.stringField("id")?.let(::parseUuid)
                     ?: throw SharedSessionException(text("ai_factory.shared.malformed_reply"))
-                val info = SharedSessionInfo(id, cellId, requested, "", 0L)
+                val actualCellId = response.stringField("cellId")?.let(::parseUuid)
+                    ?: throw SharedSessionException(text("ai_factory.shared.malformed_reply"))
+                val info = SharedSessionInfo(id, actualCellId, requested, "", 0L, autoTitle = title.isBlank())
                 created = info
                 commands.withLock { resolveOpen(terminal, info) }
             } catch (_: CancellationException) {
@@ -291,6 +299,15 @@ object ClientSharedSessionRuntime : AgentChatSession {
                 }
                 if (epoch != generation) return@launch
                 if (assistantIndex < 0 && answer.isNotBlank()) append("assistant", answer)
+                if (session.autoTitle && session.pendingTitle == null) {
+                    try {
+                        session.pendingTitle = checkNotNull(titleGenerator).generate(current.history)
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        append("system", text("ai_factory.shared.title_failed"))
+                    }
+                }
                 status = text("ai_factory.shared.ready")
             } catch (_: CancellationException) {
                 if (epoch != generation) return@launch
@@ -518,7 +535,12 @@ object ClientSharedSessionRuntime : AgentChatSession {
             }
         }
         revision++
-        active = Active(session.id, session.title, serverHash, tokens, screenOpen = true, running = false)
+        active = Active(
+            session.id,
+            response.stringField("title") ?: throw malformed(),
+            (response["autoTitle"] as? JsonPrimitive)?.booleanOrNull ?: throw malformed(),
+            serverHash, tokens, screenOpen = true, running = false,
+        )
         status = text("ai_factory.shared.ready")
         return null
     }
@@ -560,7 +582,7 @@ object ClientSharedSessionRuntime : AgentChatSession {
         } catch (failure: Exception) {
             return false
         }
-        if (hash == session.serverHash) return true
+        if (hash == session.serverHash && session.pendingTitle == null) return true
         return try {
             val response = rpc(
                 OP_SAVE,
@@ -568,10 +590,16 @@ object ClientSharedSessionRuntime : AgentChatSession {
                     put("id", session.id.toString())
                     put("hash", session.serverHash)
                     put("context", context)
+                    session.pendingTitle?.let { put("title", it) }
                 },
                 SharedSessionRpc.BULK_TIMEOUT_MILLIS,
             )
             val acknowledged = response.stringField("hash") ?: return false
+            val title = response.stringField("title") ?: return false
+            val autoTitle = (response["autoTitle"] as? JsonPrimitive)?.booleanOrNull ?: return false
+            session.title = title
+            session.autoTitle = autoTitle
+            session.pendingTitle = null
             session.serverHash = acknowledged
             session.tokens = response.longField("tokens") ?: 0L
             cache.write(worldKey(), session.id, CachedSharedSession(acknowledged, session.tokens, context))
@@ -664,15 +692,17 @@ object ClientSharedSessionRuntime : AgentChatSession {
             // Addon class only: Ae2Tools contains no AE2 API, so no AE2 type is linked from here.
             Ae2Tools.register(manager, ::sendTool)
         }
+        val provider = OpenAICompletion(
+            config.model.baseUrl, config.model.apiKey, config.model.model,
+            requestTimeout = Duration.ofSeconds(config.agent.requestTimeoutSeconds),
+        )
         val built = ReactAgent(
-            OpenAICompletion(
-                config.model.baseUrl, config.model.apiKey, config.model.model,
-                requestTimeout = Duration.ofSeconds(config.agent.requestTimeoutSeconds),
-            ),
+            provider,
             manager,
             config.agent,
         )
         settings = config.agent
+        titleGenerator = SharedSessionTitleGenerator(provider)
         agent = built
         return built
     }
@@ -688,6 +718,7 @@ object ClientSharedSessionRuntime : AgentChatSession {
                 title = json.stringField("title") ?: "",
                 hash = json.stringField("hash") ?: "",
                 tokens = json.longField("tokens") ?: 0L,
+                autoTitle = (json["autoTitle"] as? JsonPrimitive)?.booleanOrNull ?: throw malformed(),
             )
         } ?: emptyList()
         val cells = (response["cells"] as? JsonArray)?.map { entry ->

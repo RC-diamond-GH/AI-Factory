@@ -11,6 +11,7 @@ import com.rcdiamond.aifactory.addon.ae2.item.MEIntelligentCellTier
 import com.rcdiamond.aifactory.addon.ae2.server.Ae2CellBackend
 import com.rcdiamond.aifactory.addon.ae2.server.Ae2ToolExecutor
 import com.rcdiamond.aifactory.addon.ae2.storage.MEIntelligentCellHandler
+import com.rcdiamond.aifactory.addon.ae2.storage.MEIntelligentCellTooltip
 import com.rcdiamond.aifactory.shared.SharedSessionService
 import net.minecraft.core.registries.Registries
 import net.minecraft.network.chat.Component
@@ -141,6 +142,7 @@ object Ae2Addon {
 
         // The tool executor owns the tick hook that finishes asynchronous crafting planning.
         Ae2ToolExecutor.register()
+        MEIntelligentCellTooltip.register()
 
         // Last, so a request that arrives while we are still setting up fails closed instead of half working.
         SharedSessionService.backend = Ae2CellBackend

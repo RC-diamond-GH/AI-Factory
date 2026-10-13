@@ -29,8 +29,8 @@ import net.minecraftforge.server.ServerLifecycleHooks
  * [getAvailableStacks] stays empty. An intelligent cell therefore can never hold an AE key, can never be
  * charged by an ME network, and cannot be used to smuggle resources into a drive: the byte figures the
  * network sees come from the session store, not from inserted items. `persist` is likewise a no-op, because
- * the only cell state in the stack is the reference, which is written through the drive's inventory when it
- * is assigned.
+ * the authoritative cell state in the stack is the reference, written through the drive's inventory when
+ * assigned. The tooltip's title/usage summary is display-only and can be rebuilt from the world save.
  */
 class MEIntelligentCellInventory(
     private val item: MEIntelligentCellItem,
@@ -60,10 +60,9 @@ class MEIntelligentCellInventory(
     override fun getIdleDrain(): Double = item.tier.idleDrain
 
     /**
-     * Nothing to write. The sessions live in the world save, and the stack's only state - the reference - is
-     * written through the drive's inventory when it is assigned, which already marks the drive changed and
-     * saves it. Asking for another save here would only re-dirty the chunk from inside the block entity's
-     * own save.
+     * Nothing authoritative to write. Sessions live in the world save; reference assignment already marks
+     * the drive changed. The tooltip summary is regenerated for visible inventories. Asking for another
+     * save here would only re-dirty the chunk from inside the block entity's own save.
      */
     override fun persist() {
     }

@@ -27,6 +27,7 @@ interface AgentChatSession {
     val revision: Long
     val busy: Boolean
     val status: String
+    val conversationTitle: String? get() = null
     fun submit(message: String)
     fun reload()
     fun cancelTurn()
@@ -53,7 +54,14 @@ interface AgentChatSession {
 }
 
 /** One shared session advertised by the server, without its conversation. */
-data class SharedSessionInfo(val id: UUID, val cellId: UUID, val title: String, val hash: String, val tokens: Long)
+data class SharedSessionInfo(
+    val id: UUID,
+    val cellId: UUID,
+    val title: String,
+    val hash: String,
+    val tokens: Long,
+    val autoTitle: Boolean = false,
+)
 
 /** One intelligent storage cell mounted inside a terminal's grid, as the server mounts it. */
 data class SharedCellInfo(val id: UUID, val bytes: Long, val usedBytes: Long, val sessionCount: Int)
