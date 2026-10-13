@@ -1,0 +1,20 @@
+{
+  "ambientocclusion": false,
+  "textures": {
+    "screen": "ai_factory:part/me_intelligent_terminal_front"
+  },
+  "elements": [
+    {
+      "shade": false,
+      "from": [2, 2, 0],
+      "to": [14, 14, 2],
+      "faces": {
+        "north": {
+          "uv": [0, 0, 16, 16],
+          "texture": "#screen",
+          "forge_data": { "block_light": 15, "sky_light": 15 }
+        }
+      }
+    }
+  ]
+}

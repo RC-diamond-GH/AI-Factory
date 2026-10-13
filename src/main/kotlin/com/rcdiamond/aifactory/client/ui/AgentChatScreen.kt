@@ -1,9 +1,7 @@
 package com.rcdiamond.aifactory.client.ui
 
 import com.rcdiamond.aifactory.client.llm.AgentChatSession
-import net.minecraft.ChatFormatting
 import net.minecraft.client.gui.GuiGraphics
-import net.minecraft.client.gui.components.Button
 import net.minecraft.client.gui.components.EditBox
 import net.minecraft.client.gui.screens.Screen
 import net.minecraft.network.chat.Component
@@ -14,38 +12,56 @@ import kotlin.math.ceil
 class AgentChatScreen(
     private val session: AgentChatSession,
     title: Component = Component.translatable("ai_factory.chat.title"),
+    private val returnScreen: Screen? = null,
 ) : Screen(title) {
     private lateinit var input: EditBox
-    private lateinit var send: Button
-    private lateinit var cancel: Button
-    private lateinit var clear: Button
-    private lateinit var reload: Button
+    private lateinit var send: FlatButton
+    private lateinit var cancel: FlatButton
+    private lateinit var clear: FlatButton
+    private lateinit var reload: FlatButton
+    private lateinit var latest: FlatButton
+    private var confirmClear = false
+    private var returningToList = false
+    private val clearLabel = Component.translatable("ai_factory.chat.clear")
+    private val confirmClearLabel = Component.translatable("ai_factory.chat.confirm_clear")
     private var cachedRevision = -1L
     private var cachedWidth = -1
-    private val lines = ArrayList<FormattedCharSequence>()
+    private data class Line(val text: FormattedCharSequence?, val color: Int, val surface: Int)
+    private val lines = ArrayList<Line>()
     private var scrollLines = 0
-    private val lineHeight get() = font.lineHeight + 2
-    private val visibleLines get() = ((height - 104) / lineHeight).coerceAtLeast(1)
+    private val lineHeight get() = font.lineHeight + 4
+    private val left get() = ((width - 800) / 2).coerceAtLeast(16)
+    private val right get() = width - left
+    private val bodyTop = 72
+    private val bodyBottom get() = height - 70
+    private val visibleLines get() = ((bodyBottom - bodyTop - 8) / lineHeight).coerceAtLeast(1)
 
     override fun init() {
+        returningToList = false
         val draft = if (::input.isInitialized) input.value else ""
-        input = EditBox(font, 12, height - 30, (width - 164).coerceAtLeast(40), 20, Component.translatable("ai_factory.chat.input"))
+        val inputWidth = (right - left - 140).coerceAtLeast(40)
+        input = FlatEditBox(font, left, height - 32, inputWidth, 20, Component.translatable("ai_factory.chat.input"))
         input.setMaxLength(4000)
-        input.setHint(Component.translatable("ai_factory.chat.hint"))
+        input.setHint(Component.translatable(if (returnScreen == null) "ai_factory.chat.hint" else "ai_factory.shared.chat_hint"))
         input.value = draft
         addRenderableWidget(input)
-        send = addRenderableWidget(Button.builder(Component.translatable("ai_factory.chat.send")) { submit() }
-            .bounds(width - 144, height - 30, 64, 20).build())
-        cancel = addRenderableWidget(Button.builder(Component.translatable("ai_factory.chat.cancel")) { session.cancelTurn() }
-            .bounds(width - 76, height - 30, 64, 20).build())
-        clear = addRenderableWidget(Button.builder(Component.translatable("ai_factory.chat.clear")) { session.clear() }
-            .bounds(width - 176, 10, 78, 20).build())
-        reload = addRenderableWidget(Button.builder(Component.translatable("ai_factory.chat.reload")) { session.reload() }
-            .bounds(width - 94, 10, 82, 20).build())
+        send = button(right - 132, height - 32, 64, "ai_factory.chat.send") { submit() }
+        cancel = button(right - 64, height - 32, 64, "ai_factory.chat.cancel") { session.cancelTurn() }
+        if (returnScreen != null) button(left, 12, 56, "ai_factory.shared.back") { onClose() }
+        clear = button(right - 166, 38, 78, "ai_factory.chat.clear") {
+            if (confirmClear) { session.clear(); confirmClear = false } else confirmClear = true
+            refreshButtons()
+        }
+        reload = button(right - 82, 38, 82, "ai_factory.chat.reload") { confirmClear = false; session.reload() }
+        addRenderableWidget(FlatButton(right - 26, 12, 26, 20, Component.literal("×"), { minecraft?.setScreen(null) }))
+        latest = button(right - 100, height - 62, 100, "ai_factory.chat.latest") { scrollLines = 0; refreshButtons() }
         setInitialFocus(input)
         if (session.status.isEmpty()) session.reload()
         refreshButtons()
     }
+
+    private fun button(x: Int, y: Int, width: Int, key: String, action: () -> Unit): FlatButton =
+        addRenderableWidget(FlatButton(x, y, width, 20, Component.translatable(key), { action() }))
 
     override fun tick() {
         input.tick()
@@ -58,13 +74,17 @@ class AgentChatScreen(
         cancel.active = busy
         clear.active = !busy
         reload.active = !busy
-        input.setEditable(!busy)
+        clear.message = if (confirmClear) confirmClearLabel else clearLabel
+        latest.visible = scrollLines > 0
+        // Drafting remains available while a turn runs; only sending is blocked.
+        input.setEditable(true)
     }
 
     private fun submit() {
         val message = input.value.trim()
         if (message.isEmpty() || session.busy) return
         input.value = ""
+        confirmClear = false
         scrollLines = 0
         session.submit(message)
         refreshButtons()
@@ -79,48 +99,77 @@ class AgentChatScreen(
     }
 
     override fun mouseScrolled(mouseX: Double, mouseY: Double, delta: Double): Boolean {
+        if (mouseX < left || mouseX >= right || mouseY < bodyTop || mouseY >= bodyBottom) return super.mouseScrolled(mouseX, mouseY, delta)
+        rebuildLines()
         scrollLines = (scrollLines + ceil(delta * 3).toInt()).coerceIn(0, (lines.size - visibleLines).coerceAtLeast(0))
+        refreshButtons()
         return true
     }
 
     override fun render(graphics: GuiGraphics, mouseX: Int, mouseY: Int, partialTick: Float) {
-        renderBackground(graphics)
-        graphics.drawString(
-            font, font.plainSubstrByWidth(session.conversationTitle ?: title.string, width - 24), 12, 16, 0xffffff,
-        )
-        graphics.drawString(font, font.plainSubstrByWidth(session.status, width - 24), 12, 36, 0xb0b0b0)
+        TerminalUi.background(graphics, width, height)
+        val titleX = if (returnScreen == null) left else left + 64
+        graphics.drawString(font, font.plainSubstrByWidth(session.conversationTitle ?: title.string,
+            (right - 34 - titleX).coerceAtLeast(12)), titleX, 18, TerminalUi.TEXT, false)
+        graphics.fill(left, 44, left + 4, 52, if (session.busy) TerminalUi.ACCENT else TerminalUi.MUTED)
+        graphics.drawString(font, font.plainSubstrByWidth(session.status, (right - left - 186).coerceAtLeast(12)), left + 12, 44, TerminalUi.MUTED, false)
         rebuildLines()
-        graphics.fill(10, 50, width - 10, height - 42, 0x90000000.toInt())
-        graphics.enableScissor(12, 52, width - 12, height - 44)
+        graphics.fill(left, bodyTop, right, bodyBottom, TerminalUi.PANEL)
+        graphics.enableScissor(left, bodyTop, right, bodyBottom)
+        if (lines.isEmpty()) {
+            graphics.drawString(font, Component.translatable("ai_factory.chat.empty"), left + 12, bodyTop + 14, TerminalUi.ACCENT, false)
+            val help = font.split(Component.translatable(if (returnScreen == null) "ai_factory.chat.empty_hint" else "ai_factory.shared.empty_hint"), right - left - 28)
+            for (index in help.indices) graphics.drawString(font, help[index], left + 12, bodyTop + 34 + index * lineHeight, TerminalUi.MUTED, false)
+        }
         val start = (lines.size - visibleLines - scrollLines).coerceAtLeast(0)
         val end = (start + visibleLines).coerceAtMost(lines.size)
         for (index in start until end) {
-            graphics.drawString(font, lines[index], 14, 54 + (index - start) * lineHeight, 0xffffff)
+            val line = lines[index]
+            val y = bodyTop + 4 + (index - start) * lineHeight
+            graphics.fill(left + 4, y, right - 6, y + lineHeight, line.surface)
+            line.text?.let { graphics.drawString(font, it, left + 12, y + 2, line.color, false) }
+        }
+        if (lines.size > visibleLines) {
+            val track = bodyBottom - bodyTop
+            val thumb = (track * visibleLines / lines.size).coerceAtLeast(10)
+            val top = bodyTop + (track - thumb) * start / (lines.size - visibleLines)
+            graphics.fill(right - 3, top, right - 1, top + thumb, TerminalUi.ACCENT)
         }
         graphics.disableScissor()
+        graphics.drawString(font, Component.translatable(if (confirmClear) "ai_factory.chat.clear_warning" else "ai_factory.chat.composer_hint"),
+            left, height - 48, if (confirmClear) TerminalUi.ERROR else TerminalUi.MUTED, false)
+        refreshButtons()
         super.render(graphics, mouseX, mouseY, partialTick)
+        if (mouseY in 40..56 && mouseX < right - 174) graphics.renderTooltip(font, font.split(Component.literal(session.status), right - left - 16), mouseX, mouseY)
     }
 
     private fun rebuildLines() {
-        val wrapWidth = (width - 32).coerceAtLeast(20)
+        val wrapWidth = (right - left - 28).coerceAtLeast(20)
         if (cachedRevision == session.revision && cachedWidth == wrapWidth) return
         val oldSize = lines.size
         lines.clear()
         for (entry in session.entries) {
             val color = when (entry.speaker) {
-                "user" -> ChatFormatting.GREEN
-                "assistant" -> ChatFormatting.AQUA
-                "tool" -> ChatFormatting.YELLOW
-                else -> ChatFormatting.GRAY
+                "user" -> TerminalUi.ACCENT
+                "assistant" -> TerminalUi.TEXT
+                "tool" -> TerminalUi.MUTED
+                else -> TerminalUi.ERROR
             }
-            val content = Component.translatable("ai_factory.chat.speaker.${entry.speaker}")
-                .withStyle(color).append(Component.literal(": ${entry.text}").withStyle(ChatFormatting.WHITE))
-            lines.addAll(font.split(content, wrapWidth))
+            val surface = if (entry.speaker == "user") TerminalUi.HOVER else TerminalUi.PANEL
+            val speaker = Component.translatable("ai_factory.chat.speaker.${entry.speaker}")
+            lines += Line(speaker.visualOrderText, color, surface)
+            for (line in font.split(Component.literal(entry.text), wrapWidth)) lines += Line(line, TerminalUi.TEXT, surface)
+            lines += Line(null, TerminalUi.MUTED, TerminalUi.PANEL)
         }
         if (scrollLines > 0) scrollLines += lines.size - oldSize
         scrollLines = scrollLines.coerceIn(0, (lines.size - visibleLines).coerceAtLeast(0))
         cachedRevision = session.revision
         cachedWidth = wrapWidth
+    }
+
+    override fun onClose() {
+        returningToList = returnScreen != null && !session.cancelTurnOnClose
+        minecraft?.setScreen(returnScreen)
     }
 
     override fun isPauseScreen(): Boolean = false
@@ -131,9 +180,8 @@ class AgentChatScreen(
     }
 
     override fun removed() {
-        // A shared session keeps its turn running while no screen is shown; only the local chat cancels.
         if (session.cancelTurnOnClose) session.cancelTurn()
-        session.onScreenClosed()
+        if (!returningToList) session.onScreenClosed()
         super.removed()
     }
 }

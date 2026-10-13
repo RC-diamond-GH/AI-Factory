@@ -17,7 +17,7 @@ import net.minecraft.world.level.Level
  * intelligent cell stores no AE resources at all - only a reference to sessions in the world save - so it
  * is handled by [MEIntelligentCellHandler] and mounted by a drive through `StorageCells.isCellHandled`.
  *
- * The tooltip lists each saved conversation title, then the used AE2 bytes and session slots.
+ * The tooltip shows the GUI's short cell id, each saved title, then used AE2 bytes and session slots.
  * Its server-synchronized summary is display-only; the world-save store remains authoritative.
  */
 class MEIntelligentCellItem(val tier: MEIntelligentCellTier) : Item(Item.Properties().stacksTo(1)) {

@@ -21,7 +21,7 @@ import appeng.helpers.patternprovider.PatternContainer
 import appeng.helpers.patternprovider.PatternProviderLogicHost
 import appeng.menu.AutoCraftingMenu
 import com.mojang.logging.LogUtils
-import com.rcdiamond.aifactory.addon.ae2.blockentity.MEIntelligentTerminalBlockEntity
+import com.rcdiamond.aifactory.addon.ae2.part.MEIntelligentTerminalPart
 import com.rcdiamond.aifactory.addon.ae2.tool.Ae2InventoryView
 import com.rcdiamond.aifactory.addon.ae2.tool.Ae2PatternToolArguments
 import com.rcdiamond.aifactory.addon.ae2.tool.Ae2ToolLimits
@@ -141,7 +141,7 @@ object Ae2PatternToolExecutor {
      */
     fun execute(
         player: ServerPlayer,
-        terminal: MEIntelligentTerminalBlockEntity,
+        terminal: MEIntelligentTerminalPart,
         arguments: JsonObject,
         fingerprintOf: (AEKey) -> String,
         resolveKey: (IGrid, String) -> AEKey?,
@@ -167,7 +167,7 @@ object Ae2PatternToolExecutor {
 
     private fun view(
         player: ServerPlayer,
-        terminal: MEIntelligentTerminalBlockEntity,
+        terminal: MEIntelligentTerminalPart,
         options: Ae2PatternToolArguments.View,
         fingerprintOf: (AEKey) -> String,
     ): JsonObject {
@@ -251,7 +251,7 @@ object Ae2PatternToolExecutor {
 
     private fun install(
         player: ServerPlayer,
-        terminal: MEIntelligentTerminalBlockEntity,
+        terminal: MEIntelligentTerminalPart,
         request: Ae2PatternToolArguments.Install,
         fingerprintOf: (AEKey) -> String,
         resolveKey: (IGrid, String) -> AEKey?,
@@ -834,7 +834,7 @@ object Ae2PatternToolExecutor {
     private fun blankPatternsAvailable(
         grid: IGrid,
         player: ServerPlayer,
-        terminal: MEIntelligentTerminalBlockEntity,
+        terminal: MEIntelligentTerminalPart,
     ): Long {
         val key = blankPatternKey() ?: return 0L
         val source = IActionSource.ofPlayer(player, terminal)
@@ -1324,13 +1324,13 @@ object Ae2PatternToolExecutor {
 
     // -------------------------------------------------------------- helpers
 
-    private fun resolveGrid(player: ServerPlayer, terminal: MEIntelligentTerminalBlockEntity): IGrid = try {
+    private fun resolveGrid(player: ServerPlayer, terminal: MEIntelligentTerminalPart): IGrid = try {
         terminal.resolve(player, ALLOW_REMOTE_AFTER_LOCK)
     } catch (denied: IllegalArgumentException) {
         throw TerminalUnavailable(denied.message)
     }
 
-    private fun requireServerLevel(terminal: MEIntelligentTerminalBlockEntity): ServerLevel =
+    private fun requireServerLevel(terminal: MEIntelligentTerminalPart): ServerLevel =
         terminal.level as? ServerLevel
             ?: throw TerminalUnavailable("the ME terminal is not in a loaded server level")
 

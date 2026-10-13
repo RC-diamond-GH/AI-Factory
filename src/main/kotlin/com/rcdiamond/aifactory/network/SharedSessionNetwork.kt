@@ -42,7 +42,7 @@ import net.minecraftforge.network.simple.SimpleChannel
  */
 object SharedSessionNetwork {
     /** Exact-match protocol version. Changing the wire format means changing this string. */
-    const val PROTOCOL_VERSION: String = "3"
+    const val PROTOCOL_VERSION: String = "5"
 
     /** Largest payload carried by one chunk. */
     const val MAX_CHUNK_BYTES: Int = 24 * 1024
@@ -152,8 +152,10 @@ object SharedSessionNetwork {
     }
 
     /**
-     * Asks [player]'s client to open the terminal at [terminal]. Server-only call: the caller has already
-     * validated the block use, and the client side only opens a screen in reaction to this message.
+     * Asks [player]'s client to open the terminal at [terminal]. [terminal] is the locator
+     * `{dimension,x,y,z,side}` naming the exact part, so the client can send it back unchanged on every
+     * later request. Server-only call: the caller has already validated the block use, and the client side
+     * only opens a screen in reaction to this message.
      */
     fun openTerminal(player: ServerPlayer, terminal: JsonObject) {
         val instance = channel ?: error("SharedSessionNetwork.register() has not been called")

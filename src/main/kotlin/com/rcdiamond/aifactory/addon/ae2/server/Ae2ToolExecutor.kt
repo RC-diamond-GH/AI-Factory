@@ -15,7 +15,7 @@ import appeng.api.stacks.GenericStack
 import appeng.api.stacks.KeyCounter
 import appeng.api.storage.AEKeyFilter
 import com.mojang.logging.LogUtils
-import com.rcdiamond.aifactory.addon.ae2.blockentity.MEIntelligentTerminalBlockEntity
+import com.rcdiamond.aifactory.addon.ae2.part.MEIntelligentTerminalPart
 import com.rcdiamond.aifactory.addon.ae2.tool.Ae2InventoryView
 import com.rcdiamond.aifactory.addon.ae2.tool.Ae2NbtView
 import com.rcdiamond.aifactory.addon.ae2.tool.Ae2Tag
@@ -152,7 +152,7 @@ object Ae2ToolExecutor {
      */
     fun execute(
         player: ServerPlayer,
-        terminal: MEIntelligentTerminalBlockEntity,
+        terminal: MEIntelligentTerminalPart,
         operation: String,
         arguments: JsonObject,
         authorize: () -> Unit,
@@ -182,7 +182,7 @@ object Ae2ToolExecutor {
 
     private fun readInventory(
         player: ServerPlayer,
-        terminal: MEIntelligentTerminalBlockEntity,
+        terminal: MEIntelligentTerminalPart,
         arguments: JsonObject,
     ): JsonObject {
         val options = Ae2ToolArguments.readInventory(arguments)
@@ -209,7 +209,7 @@ object Ae2ToolExecutor {
 
     private fun itemDetails(
         player: ServerPlayer,
-        terminal: MEIntelligentTerminalBlockEntity,
+        terminal: MEIntelligentTerminalPart,
         arguments: JsonObject,
     ): JsonObject {
         val options = Ae2ToolArguments.itemDetails(arguments)
@@ -279,7 +279,7 @@ object Ae2ToolExecutor {
      */
     private fun beginPlan(
         player: ServerPlayer,
-        terminal: MEIntelligentTerminalBlockEntity,
+        terminal: MEIntelligentTerminalPart,
         arguments: JsonObject,
         reply: (JsonObject) -> Unit,
         authorize: (() -> Unit)?,
@@ -323,8 +323,10 @@ object Ae2ToolExecutor {
             return
         }
 
-        val host = terminal as? IActionHost
-        if (host == null || host.actionableNode == null) {
+        // The terminal part *is* the action host, so the job is attributed to the real caller through AE2's
+        // own source rather than a stand-in.
+        val host: IActionHost = terminal
+        if (host.actionableNode == null) {
             reply(failure("terminal_unavailable", "the ME terminal has no active grid node"))
             return
         }
@@ -361,14 +363,14 @@ object Ae2ToolExecutor {
 
     private fun startCraftingPlan(
         player: ServerPlayer,
-        terminal: MEIntelligentTerminalBlockEntity,
+        terminal: MEIntelligentTerminalPart,
         arguments: JsonObject,
         reply: (JsonObject) -> Unit,
     ) = beginPlan(player, terminal, arguments, reply, authorize = null)
 
     private fun startCraftingRequest(
         player: ServerPlayer,
-        terminal: MEIntelligentTerminalBlockEntity,
+        terminal: MEIntelligentTerminalPart,
         arguments: JsonObject,
         authorize: () -> Unit,
         reply: (JsonObject) -> Unit,
@@ -733,7 +735,7 @@ object Ae2ToolExecutor {
         null -> "the crafting job was rejected"
     }
 
-    private fun resolveGrid(player: ServerPlayer, terminal: MEIntelligentTerminalBlockEntity): IGrid = try {
+    private fun resolveGrid(player: ServerPlayer, terminal: MEIntelligentTerminalPart): IGrid = try {
         terminal.resolve(player, ALLOW_REMOTE_AFTER_LOCK)
     } catch (denied: IllegalArgumentException) {
         throw TerminalUnavailable(denied.message)
@@ -834,7 +836,7 @@ object Ae2ToolExecutor {
 
     private class PendingPlan(
         val player: ServerPlayer,
-        val terminal: MEIntelligentTerminalBlockEntity,
+        val terminal: MEIntelligentTerminalPart,
         val key: AEKey,
         val fingerprint: String,
         val amount: Long,
