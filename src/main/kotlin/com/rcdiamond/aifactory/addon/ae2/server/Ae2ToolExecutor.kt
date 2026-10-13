@@ -1,4 +1,4 @@
-package com.rcdiamond.aifactory.addon.ae2
+package com.rcdiamond.aifactory.addon.ae2.server
 
 import appeng.api.networking.IGrid
 import appeng.api.networking.crafting.CalculationStrategy
@@ -15,6 +15,13 @@ import appeng.api.stacks.GenericStack
 import appeng.api.stacks.KeyCounter
 import appeng.api.storage.AEKeyFilter
 import com.mojang.logging.LogUtils
+import com.rcdiamond.aifactory.addon.ae2.blockentity.MEIntelligentTerminalBlockEntity
+import com.rcdiamond.aifactory.addon.ae2.tool.Ae2InventoryView
+import com.rcdiamond.aifactory.addon.ae2.tool.Ae2NbtView
+import com.rcdiamond.aifactory.addon.ae2.tool.Ae2Tag
+import com.rcdiamond.aifactory.addon.ae2.tool.Ae2TagType
+import com.rcdiamond.aifactory.addon.ae2.tool.Ae2ToolArguments
+import com.rcdiamond.aifactory.addon.ae2.tool.Ae2ToolLimits
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put

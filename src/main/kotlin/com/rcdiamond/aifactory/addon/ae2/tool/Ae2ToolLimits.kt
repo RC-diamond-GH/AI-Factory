@@ -1,4 +1,4 @@
-package com.rcdiamond.aifactory.addon.ae2
+package com.rcdiamond.aifactory.addon.ae2.tool
 
 /**
  * Engine-independent names and bounds shared by the client-side ME terminal tools and the

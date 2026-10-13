@@ -1,4 +1,4 @@
-package com.rcdiamond.aifactory.addon.ae2
+package com.rcdiamond.aifactory.addon.ae2.server
 
 import appeng.api.config.Actionable
 import appeng.api.crafting.IPatternDetails
@@ -21,6 +21,10 @@ import appeng.helpers.patternprovider.PatternContainer
 import appeng.helpers.patternprovider.PatternProviderLogicHost
 import appeng.menu.AutoCraftingMenu
 import com.mojang.logging.LogUtils
+import com.rcdiamond.aifactory.addon.ae2.blockentity.MEIntelligentTerminalBlockEntity
+import com.rcdiamond.aifactory.addon.ae2.tool.Ae2InventoryView
+import com.rcdiamond.aifactory.addon.ae2.tool.Ae2PatternToolArguments
+import com.rcdiamond.aifactory.addon.ae2.tool.Ae2ToolLimits
 import kotlinx.serialization.json.JsonArrayBuilder
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject

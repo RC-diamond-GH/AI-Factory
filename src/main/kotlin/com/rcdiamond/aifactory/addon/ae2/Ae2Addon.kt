@@ -4,6 +4,13 @@ import appeng.api.storage.StorageCells
 import appeng.blockentity.AEBaseBlockEntity
 import com.mojang.logging.LogUtils
 import com.rcdiamond.aifactory.AIFactory
+import com.rcdiamond.aifactory.addon.ae2.block.MEIntelligentTerminalBlock
+import com.rcdiamond.aifactory.addon.ae2.blockentity.MEIntelligentTerminalBlockEntity
+import com.rcdiamond.aifactory.addon.ae2.item.MEIntelligentCellItem
+import com.rcdiamond.aifactory.addon.ae2.item.MEIntelligentCellTier
+import com.rcdiamond.aifactory.addon.ae2.server.Ae2CellBackend
+import com.rcdiamond.aifactory.addon.ae2.server.Ae2ToolExecutor
+import com.rcdiamond.aifactory.addon.ae2.storage.MEIntelligentCellHandler
 import com.rcdiamond.aifactory.shared.SharedSessionService
 import net.minecraft.core.registries.Registries
 import net.minecraft.network.chat.Component

@@ -1,4 +1,4 @@
-package com.rcdiamond.aifactory.addon.ae2
+package com.rcdiamond.aifactory.addon.ae2.item
 
 import com.rcdiamond.aifactory.shared.SharedSessionLimits
 

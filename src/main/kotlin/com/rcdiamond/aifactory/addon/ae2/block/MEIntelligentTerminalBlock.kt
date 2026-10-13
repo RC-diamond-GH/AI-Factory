@@ -1,8 +1,10 @@
-package com.rcdiamond.aifactory.addon.ae2
+package com.rcdiamond.aifactory.addon.ae2.block
 
 import appeng.block.AEBaseBlock
 import appeng.block.AEBaseEntityBlock
 import com.rcdiamond.aifactory.AIFactory
+import com.rcdiamond.aifactory.addon.ae2.Ae2Addon
+import com.rcdiamond.aifactory.addon.ae2.blockentity.MEIntelligentTerminalBlockEntity
 import com.rcdiamond.aifactory.network.SharedSessionNetwork
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject

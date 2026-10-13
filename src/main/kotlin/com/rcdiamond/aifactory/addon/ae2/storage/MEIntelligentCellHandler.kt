@@ -1,8 +1,11 @@
-package com.rcdiamond.aifactory.addon.ae2
+package com.rcdiamond.aifactory.addon.ae2.storage
 
 import appeng.api.storage.cells.ICellHandler
 import appeng.api.storage.cells.ISaveProvider
 import appeng.api.storage.cells.StorageCell
+import com.rcdiamond.aifactory.addon.ae2.Ae2Addon
+import com.rcdiamond.aifactory.addon.ae2.item.MEIntelligentCellItem
+import com.rcdiamond.aifactory.addon.ae2.server.Ae2CellBackend
 import net.minecraft.world.item.ItemStack
 
 /**

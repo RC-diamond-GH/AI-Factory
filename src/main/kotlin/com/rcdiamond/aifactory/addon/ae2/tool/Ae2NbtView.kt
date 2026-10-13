@@ -1,4 +1,4 @@
-package com.rcdiamond.aifactory.addon.ae2
+package com.rcdiamond.aifactory.addon.ae2.tool
 
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement

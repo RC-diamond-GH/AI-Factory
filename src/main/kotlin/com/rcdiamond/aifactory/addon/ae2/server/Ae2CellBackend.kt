@@ -1,9 +1,12 @@
-package com.rcdiamond.aifactory.addon.ae2
+package com.rcdiamond.aifactory.addon.ae2.server
 
 import appeng.api.implementations.blockentities.IChestOrDrive
 import appeng.blockentity.AEBaseBlockEntity
 import appeng.blockentity.AEBaseInvBlockEntity
 import appeng.blockentity.storage.ChestBlockEntity
+import com.rcdiamond.aifactory.addon.ae2.blockentity.MEIntelligentTerminalBlockEntity
+import com.rcdiamond.aifactory.addon.ae2.item.MEIntelligentCellItem
+import com.rcdiamond.aifactory.addon.ae2.storage.MEIntelligentCellRef
 import com.rcdiamond.aifactory.shared.SharedCell
 import com.rcdiamond.aifactory.shared.SharedTerminalBackend
 import kotlinx.serialization.json.JsonObject

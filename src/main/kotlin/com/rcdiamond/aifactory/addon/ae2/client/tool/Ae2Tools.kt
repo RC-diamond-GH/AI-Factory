@@ -1,6 +1,6 @@
-package com.rcdiamond.aifactory.addon.ae2.client
+package com.rcdiamond.aifactory.addon.ae2.client.tool
 
-import com.rcdiamond.aifactory.addon.ae2.Ae2ToolLimits
+import com.rcdiamond.aifactory.addon.ae2.tool.Ae2ToolLimits
 import com.rcdiamond.aifactory.client.tool.ToolArgumentException
 import com.rcdiamond.aifactory.client.tool.ToolManager
 import kotlinx.serialization.json.JsonElement

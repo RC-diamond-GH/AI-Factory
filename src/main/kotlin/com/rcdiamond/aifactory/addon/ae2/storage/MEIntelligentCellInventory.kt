@@ -1,7 +1,9 @@
-package com.rcdiamond.aifactory.addon.ae2
+package com.rcdiamond.aifactory.addon.ae2.storage
 
 import appeng.api.storage.cells.CellState
 import appeng.api.storage.cells.StorageCell
+import com.rcdiamond.aifactory.addon.ae2.item.MEIntelligentCellItem
+import com.rcdiamond.aifactory.addon.ae2.item.MEIntelligentCellTier
 import com.rcdiamond.aifactory.shared.SharedCellStore
 import com.rcdiamond.aifactory.shared.SharedSessionLimits
 import java.util.UUID

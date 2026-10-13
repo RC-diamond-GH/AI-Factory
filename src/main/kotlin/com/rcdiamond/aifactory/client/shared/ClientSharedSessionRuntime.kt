@@ -1,6 +1,6 @@
 package com.rcdiamond.aifactory.client.shared
 
-import com.rcdiamond.aifactory.addon.ae2.client.Ae2Tools
+import com.rcdiamond.aifactory.addon.ae2.client.tool.Ae2Tools
 import com.rcdiamond.aifactory.client.agent.ReactAgent
 import com.rcdiamond.aifactory.client.config.ClientConfigFiles
 import com.rcdiamond.aifactory.client.config.ClientConfigurationException

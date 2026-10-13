@@ -1,5 +1,7 @@
-package com.rcdiamond.aifactory.addon.ae2
+package com.rcdiamond.aifactory.addon.ae2.item
 
+import com.rcdiamond.aifactory.addon.ae2.storage.MEIntelligentCellHandler
+import com.rcdiamond.aifactory.addon.ae2.storage.MEIntelligentCellRef
 import com.rcdiamond.aifactory.shared.SharedSessionLimits
 import net.minecraft.network.chat.Component
 import net.minecraft.world.item.Item

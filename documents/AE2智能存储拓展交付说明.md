@@ -50,7 +50,13 @@
 | `client.shared.*` | 本地缓存与同步、会话选择、Provider 组合、共享回合生命周期、HUD |
 | `client.agent.ReactAgent` | 原有 ReAct 引擎，增加完整上下文导入/导出；不认识 ME 网络 |
 | `client.ui.AgentChatScreen` | 通用聊天显示与生命周期回调；由会话契约决定关闭是否取消 |
-| `addon.ae2.*` | 条件注册、元件/终端、网格接入授权、AE2 Tool 实际游戏侧实现 |
+| `addon.ae2.Ae2Addon` | 唯一根包入口，负责条件注册与公共初始化；反射加载类名保持不变 |
+| `addon.ae2.block.*` / `addon.ae2.blockentity.*` | ME 智能终端方块交互、掉落及方块实体的网格生命周期与授权 |
+| `addon.ae2.item.*` | ME 智能元件物品与容量档位 |
+| `addon.ae2.storage.*` | AE2 元件处理器、挂载库存、元件 UUID 引用与使用量读取 |
+| `addon.ae2.server.*` | 共享会话后端、库存/合成工具执行与样板管理执行 |
+| `addon.ae2.tool.*` | 无 Minecraft/AE2 API 依赖的共用参数校验、操作限制、库存分页与 NBT 视图 |
+| `addon.ae2.client.tool.*` | 五项客户端 ME 工具的定义、校验与注册 |
 
 ```mermaid
 sequenceDiagram
@@ -188,4 +194,12 @@ NBT 路径例如 `tag.display.Name`、`tag.Items[3].id`；支持转义成员名�
 - 额外尝试在独立 JVM 引导 Minecraft 并调用 AE2 物品/加工样板 API，失败在 Forge `NetworkEvent` 监听器初始化：该 JVM 缺少正常 Forge 启动时的事件类转换（`NoSuchMethodException: NetworkEvent.<init>()`）。这不是游戏加载或样板 API 验收通过的证据，也未为绕过它修改生产逻辑。
 
 未启动客户端、独立服务端或 GameTestServer；真实 CPU 合成、四种样板投放、权限、跨维度容器和界面加载仍按第 6 节进行游戏内验收。纯工具烟测和参数测试不代替这些检查。
+
+## 9. AE2 package 重构验证
+
+- 将内容定义、存储适配、服务端执行、共用工具契约与客户端工具分包；测试同步迁至 `addon.ae2.tool` 和 `addon.ae2.client.tool`。本次只调整文件位置、package 和 import，不改变可见性、注册 ID、NBT、协议或运行逻辑，也不保留旧包别名。
+- 执行 `build ae2PackageSmoke ae2PackageArchiveCheck -I .gradle/ae2-package-smoke/smoke.gradle --console=plain` 成功，包含 `reobfJar` 与 `reobfJarJar`；全部 **214 项本地测试通过**，其中 AE2 测试 38 项，失败和跳过均为 0。
+- 独立 JVM 运行迁移后的 `Ae2Tools` / `ToolManager`，确认五项工具注册，非法参数在到达游戏网关前拒绝；实际运行规范化 NBT 指纹、共享 Key/路径校验及 NBT 导航/渲染。
+- 检查发布包 `build/libs/ai_factory-1.0.0.jar` 中 26 个迁移类、入口及文件级辅助类：新 package 路径齐全，旧 AE2 根包内容类和旧 `addon.ae2.client` 工具类无残留；`mods.toml` 已展开，客户端资源与服务端数据存在，未包含烟测类。临时烟测源、任务与类文件已移除。
+- 未启动客户端、独立服务端或 GameTestServer；构建和独立 JVM 工具烟测不代表游戏内注册、加载及世界交互验收通过。
 
