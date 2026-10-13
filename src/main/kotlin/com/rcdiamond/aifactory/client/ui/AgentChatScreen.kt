@@ -11,7 +11,10 @@ import net.minecraft.util.FormattedCharSequence
 import org.lwjgl.glfw.GLFW
 import kotlin.math.ceil
 
-class AgentChatScreen(private val session: AgentChatSession) : Screen(Component.translatable("ai_factory.chat.title")) {
+class AgentChatScreen(
+    private val session: AgentChatSession,
+    title: Component = Component.translatable("ai_factory.chat.title"),
+) : Screen(title) {
     private lateinit var input: EditBox
     private lateinit var send: Button
     private lateinit var cancel: Button
@@ -120,8 +123,15 @@ class AgentChatScreen(private val session: AgentChatSession) : Screen(Component.
 
     override fun isPauseScreen(): Boolean = false
 
+    override fun added() {
+        super.added()
+        session.onScreenOpened()
+    }
+
     override fun removed() {
-        session.cancelTurn()
+        // A shared session keeps its turn running while no screen is shown; only the local chat cancels.
+        if (session.cancelTurnOnClose) session.cancelTurn()
+        session.onScreenClosed()
         super.removed()
     }
 }

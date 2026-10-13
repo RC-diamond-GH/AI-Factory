@@ -1,0 +1,6 @@
+{
+  "parent": "minecraft:item/generated",
+  "textures": {
+    "layer0": "ai_factory:item/me_intelligent_cell_16k"
+  }
+}

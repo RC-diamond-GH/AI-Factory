@@ -1,0 +1,29 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    " I ",
+    "CTC",
+    " I "
+  ],
+  "key": {
+    "I": {
+      "item": "minecraft:iron_ingot"
+    },
+    "C": {
+      "item": "ae2:calculation_processor"
+    },
+    "T": {
+      "item": "ae2:terminal"
+    }
+  },
+  "result": {
+    "item": "ai_factory:me_intelligent_terminal"
+  },
+  "conditions": [
+    {
+      "type": "forge:mod_loaded",
+      "modid": "ae2"
+    }
+  ]
+}

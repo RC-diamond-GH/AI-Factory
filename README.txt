@@ -5,8 +5,9 @@ Minecraft 1.20.1 / Forge 47.4.10 / Gradle Wrapper 8.8。
 Kotlin 2.2.21 / Kotlin for Forge 4.12.0 / Java 17 编译目标。
 Mod ID：ai_factory；入口：com.rcdiamond.aifactory.AIFactory；版本：1.0.0。
 入口注册公共游戏操作网络；客户端提供统一 LLM 模式、流式 ReAct、Tool 注册器和游戏内聊天界面。
-内置 give_item 和 execute_command Tool，经网络由服务端执行；没有新增方块、物品或创造模式物品栏。
-新增游戏内容时再添加对应注册器、配置与 assets/ai_factory、data/ai_factory 资源。
+内置 give_item 和 execute_command Tool，经网络由服务端执行。
+可选 AE2 15.4.11 拓展：五档 ME 智能元件、ME 智能终端、共享会话和 ME 网络 Tool；
+未安装 AE2 时不注册这些内容，原有 G 键聊天仍可使用。
 Kotlin 源码位于 src\main\kotlin\com\rcdiamond\aifactory；元数据在 gradle.properties 中配置。
 开发注意事项见 AGENTS.md；测试方案见 documents\单元测试实施方案.md。
 
@@ -145,6 +146,22 @@ ReAct、注册 Tool、干运行网关、观察结果与最终回答。临时 smo
 语法错误反馈、有界输出及事件取消；未启动世界或使用真实玩家，不等同游戏内验收。
 按项目约束未启动 Minecraft，真实界面、服务端加载、权限与背包交互尚未完成游戏内验收；
 检查清单见架构设计文档第 9 节。本次未调用付费外网 API。
+
+可选 AE2 智能存储
+==============================
+交付说明、容量定义、同步与锁、权限边界及游戏内验收：
+    documents\AE2智能存储拓展交付说明.md
+使用拓展时，客户端与服务端都安装 AE2 15.4.11、GuideME 20.1.7 及 KFF。
+智能元件为 1K / 4K / 16K / 64K / 256K，均最多 8 个会话，容量共享；
+1 ME 字节 = 32 个 cl100k_base 存储 Token，256K 总计 8 Mi Token。
+把元件装入 ME 驱动器，接通 ME 智能终端的电源与通道，右键新建或打开会话。
+上下文保存在世界存档；客户端按 UUID / SHA-256 复用或更新本地缓存，
+使用自己的 model.toml 运行同一个 ReAct。共享会话关闭界面不取消回合，
+HUD 显示后台状态；保存确认后，界面关闭且回合结束才释放会话锁。
+新增 Tool：ae2_read_inventory、ae2_item_details、ae2_crafting_plan；
+最后一项仅计算真实 AE2 计划，不自动提交合成任务。
+build\libs\ai_factory-1.0.0.jar 为重混淆发布包，包含 JTokkit 的 Jar-in-Jar；
+带 -plain 后缀的中间包缺少 Tokenizer，不用于发布。AE2、GuideME 和 Kotlin 不打包进本 Mod。
 
 
 官方 MDK 说明

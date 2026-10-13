@@ -52,6 +52,7 @@ class ReactAgent(
 ) {
     private val messages = ArrayList<ChatMessage>()
     private val turn = Mutex()
+    private var adopted: LLMContext? = null
 
     /** Ordered conversation owned by this agent. Read-only view; never mutated through it. */
     val history: List<ChatMessage> get() = messages
@@ -65,6 +66,43 @@ class ReactAgent(
     /** Drops the conversation. Must not be called while [respond] is still running. */
     fun reset() {
         messages.clear()
+        adopted = null
+    }
+
+    /**
+     * The complete provider-independent context of this conversation: the prompt and tool set this agent
+     * currently speaks with plus every recorded [ChatMessage]. Safe to serialize, hash and store; it never
+     * contains credentials, and the returned list is a snapshot that the agent no longer shares.
+     */
+    fun exportContext(): LLMContext = buildContext()
+
+    /**
+     * Replaces the conversation with [context] and adopts its prompt and tool set, so a context that was
+     * exported and stored elsewhere continues exactly where it stopped. Must not be called while [respond]
+     * is still running.
+     *
+     * Adopted tool definitions are advertised to the model unchanged, but execution still goes through this
+     * agent's own [ToolManager]; a call to a tool this client no longer registers becomes an unknown-tool
+     * observation instead of being executed.
+     */
+    fun importContext(context: LLMContext) {
+        messages.clear()
+        messages.addAll(context.messages)
+        adopted = context
+    }
+
+    /**
+     * Prompt, advertised tools and messages as one context. The live message list is copied so callers can
+     * encode or hash it without racing later steps.
+     */
+    private fun buildContext(): LLMContext {
+        val inherited = adopted
+        return LLMContext(
+            systemPrompt = inherited?.systemPrompt ?: settings.systemPrompt,
+            globalPrompt = inherited?.globalPrompt ?: emptyList(),
+            tools = if (inherited != null) inherited.tools else tools.definitions.takeIf { it.isNotEmpty() },
+            messages = messages.toList(),
+        )
     }
 
     /**
@@ -107,11 +145,7 @@ class ReactAgent(
 
     /** Collects one complete model step: streamed text, indexed tool calls and the finish reason. */
     private suspend fun streamStep(onUpdate: (AgentUpdate) -> Unit): StreamedStep {
-        val context = LLMContext(
-            systemPrompt = settings.systemPrompt,
-            tools = tools.definitions.takeIf { it.isNotEmpty() },
-            messages = messages.toList(),
-        )
+        val context = buildContext()
         val text = StringBuilder()
         val fragments = TreeMap<Int, CallFragments>()
         var reason: FinishReason? = null

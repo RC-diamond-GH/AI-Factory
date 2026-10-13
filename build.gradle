@@ -16,6 +16,7 @@ base {
 // Mojang ships Java 17 to end users in 1.18+, so your mod should target Java 17.
 java.toolchain.languageVersion = JavaLanguageVersion.of(17)
 kotlin.jvmToolchain(17)
+jarJar.enable()
 
 // Forge discovers each development mod from one directory containing classes and metadata.
 sourceSets.configureEach {
@@ -122,6 +123,12 @@ minecraft {
 sourceSets.main.resources { srcDir 'src/generated/resources' }
 
 repositories {
+    mavenCentral()
+    maven {
+        name = 'ModmavenAE2'
+        url = 'https://modmaven.dev/'
+        content { includeGroup 'appeng' }
+    }
     maven {
         name = 'KotlinForForge'
         url = 'https://thedarkcolour.github.io/KotlinForForge/'
@@ -137,6 +144,12 @@ dependencies {
     // then special handling is done to allow a setup of a vanilla dependency without the use of an external repository.
     minecraft "net.minecraftforge:forge:${minecraft_version}-${forge_version}"
     implementation "thedarkcolour:kotlinforforge:${kotlin_for_forge_version}"
+    implementation fg.deobf('appeng:appliedenergistics2-forge:15.4.11')
+    runtimeOnly fg.deobf('org.appliedenergistics:guideme:20.1.7')
+    implementation 'com.knuddels:jtokkit:1.1.0'
+    jarJar('com.knuddels:jtokkit:[1.1.0,1.2.0)') {
+        jarJar.pin(it, '1.1.0')
+    }
 
     testImplementation platform('org.junit:junit-bom:5.11.4')
     testImplementation 'org.jetbrains.kotlin:kotlin-test-junit5:2.2.21'
@@ -166,6 +179,7 @@ tasks.named('processResources', ProcessResources).configure {
 
 // Example for how to get properties into the manifest for reading at runtime.
 tasks.named('jar', Jar).configure {
+    archiveClassifier = 'plain'
     from('LICENSE')
     manifest {
         attributes([
@@ -183,6 +197,16 @@ tasks.named('jar', Jar).configure {
     finalizedBy 'reobfJar'
 }
 
+// The release artifact includes only the tokenizer library, never AE2, GuideME or Kotlin.
+tasks.named('jarJar', Jar).configure {
+    archiveClassifier = ''
+    from('LICENSE')
+    manifest.from(tasks.named('jar', Jar).get().manifest)
+    finalizedBy 'reobfJarJar'
+}
+reobf { jarJar {} }
+tasks.named('build').configure { dependsOn tasks.named('jarJar') }
+
 // However if you are in a multi-project build, dev time needs unobfed jar files, so you can delay the obfuscation until publishing by doing:
 // tasks.named('publish').configure {
 //     dependsOn 'reobfJar'
@@ -192,7 +216,7 @@ tasks.named('jar', Jar).configure {
 publishing {
     publications {
         register('mavenJava', MavenPublication) {
-            artifact jar
+            artifact tasks.named('jarJar')
         }
     }
     repositories {
