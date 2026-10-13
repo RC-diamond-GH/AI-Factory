@@ -383,4 +383,62 @@ class SharedSessionStoreTest {
         assertFailsWith<IllegalArgumentException> { store.create(cellA, "new") }
         assertTrue(bytes.contentEquals(store.encode()))
     }
+
+    @Test
+    fun `deleting frees the session slot, the cell's bytes and the mounted view`() {
+        val store = SharedSessionStore()
+        // Fill the cell's session slots so only a deletion can make room again.
+        val doomed = store.create(cellA, "doomed", UUID.randomUUID(), context(5000))
+        repeat(SharedSessionLimits.MAX_SESSIONS_PER_CELL - 1) { store.create(cellA, "filler $it") }
+        assertEquals(SharedSessionLimits.MAX_SESSIONS_PER_CELL, store.sessionCount(cellA))
+        assertFailsWith<IllegalArgumentException> { store.create(cellA, "refused") }
+        val occupied = store.usedBytes(cellA)
+
+        val removed = store.delete(doomed.id, doomed.hash)
+
+        assertEquals(doomed, removed)
+        assertNull(store.find(doomed.id))
+        assertEquals(SharedSessionLimits.MAX_SESSIONS_PER_CELL - 1, store.sessionCount(cellA))
+        assertEquals(occupied - doomed.charge, store.usedBytes(cellA))
+        assertFalse(store.isMountedIn(doomed.id, setOf(cellA)))
+        assertEquals(SharedSessionLimits.MAX_SESSIONS_PER_CELL - 1, store.titles(cellA).size)
+        assertFalse(store.titles(cellA).contains("doomed"))
+
+        // Both the freed slot and the freed bytes accept a new conversation again.
+        val reuse = store.create(cellA, "reuse", UUID.randomUUID(), context(5000))
+        assertEquals(SharedSessionLimits.MAX_SESSIONS_PER_CELL, store.sessionCount(cellA))
+        assertEquals(occupied - doomed.charge + reuse.charge, store.usedBytes(cellA))
+        val reloaded = SharedSessionStore.decode(store.encode())
+        assertEquals(store.all(), reloaded.all())
+        assertEquals(store.usedBytes(cellA), reloaded.usedBytes(cellA))
+        assertEquals(0L, reloaded.usedBytes(cellB))
+    }
+
+    @Test
+    fun `a stale or missing session is never deleted`() {
+        val store = SharedSessionStore()
+        val record = store.create(cellA, "t", UUID.randomUUID(), context(10))
+        val occupied = store.usedBytes(cellA)
+        val saved = store.replace(record.id, context(20), SharedSessionLimits.CELL_1K_BYTES)
+
+        // The listing the client saw is old: its hash must not be able to remove the newer body.
+        assertFailsWith<IllegalArgumentException> { store.delete(record.id, record.hash) }
+        assertEquals(saved, store.find(record.id))
+        assertEquals(saved.charge, store.usedBytes(cellA))
+        assertFailsWith<IllegalArgumentException> { store.delete(UUID.randomUUID(), saved.hash) }
+        assertTrue(occupied > 0)
+
+        assertEquals(saved, store.delete(record.id, saved.hash))
+        assertNull(store.find(record.id))
+        assertEquals(0, store.sessionCount(cellA))
+        assertEquals(0L, store.usedBytes(cellA))
+    }
+
+    @Test
+    fun `protected storage refuses deletion and keeps its bytes`() {
+        val bytes = byteArrayOf(1, 2, 3)
+        val store = SharedSessionStore.decode(bytes)
+        assertFailsWith<IllegalArgumentException> { store.delete(cellA, "") }
+        assertTrue(bytes.contentEquals(store.encode()))
+    }
 }

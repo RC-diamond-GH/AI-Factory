@@ -7,7 +7,6 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonObjectBuilder
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
-import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.level.ServerPlayer
 import net.minecraftforge.common.MinecraftForge
 import net.minecraftforge.event.entity.player.PlayerEvent
@@ -60,7 +59,7 @@ object SharedSessionMechanism {
      * Handles one assembled request. [reply] is called exactly once, from the server thread — immediately for
      * the synchronous operations and later (on a tick) for a tool that polls work.
      *
-     * The `terminal` field of a payload is the locator `{dimension,x,y,z}`; the sender is always the
+     * The `terminal` field of a payload is the locator `{dimension,x,y,z,side}`; the sender is always the
      * connection's own player and never a value from [payload].
      *
      * - `list` `{terminal}` → `{ok,sessions:[{id,cellId,title,autoTitle,hash,tokens}],cells:[{id,bytes,usedBytes,sessionCount}]}`,
@@ -73,6 +72,11 @@ object SharedSessionMechanism {
      *   they already own, anything else is a conflict. The acquired state is `screenOpen = true, running = false`.
      * - `save` `{id,hash,context,title?}` → `{ok,title,autoTitle,hash,tokens}`. Requires the caller's lease, a
      *   still-mounted cell and an unchanged `hash`; context and the optional first generated title are saved atomically.
+     * - `delete` `{terminal,id,hash}` → `{ok}`. Removes the session from the store, freeing its slot and its ME
+     *   bytes. Only accepted while the session's cell is installed in that terminal; `hash` must still be the
+     *   one the client listed, so a stale listing cannot destroy a newer conversation. A session held by
+     *   another player, or one whose turn is still running (even the caller's own), is refused. The caller's
+     *   own idle lease is dropped only after the store mutation succeeds, and nothing is flushed.
      * - `state` `{id,screenOpen,running}` → `{ok}`. Requires the lease; the lease is released exactly when both
      *   flags are false. The client must have its save acknowledged before it reports `running = false`.
      * - `tool` `{id,operation,arguments}` → whatever the backend answers, passed through unchanged. Requires the
@@ -92,6 +96,7 @@ object SharedSessionMechanism {
                 "create" -> create(player, payload, backend, data, reply)
                 "open" -> open(player, payload, backend, data, reply)
                 "save" -> save(player, payload, backend, data, reply)
+                "delete" -> delete(player, payload, backend, data, reply)
                 "state" -> state(player, payload, data, reply)
                 "tool" -> tool(player, payload, backend, data, reply)
                 else -> reply(error("Unknown operation '$operation'"))
@@ -217,6 +222,32 @@ object SharedSessionMechanism {
         )
     }
 
+    private fun delete(
+        player: ServerPlayer,
+        payload: JsonObject,
+        backend: SharedTerminalBackend,
+        data: SharedSessionSavedData,
+        reply: (JsonObject) -> Unit,
+    ) {
+        val terminal = locator(payload)
+        val id = payload.requireUuid("id")
+        val expectedHash = payload.requireString("hash")
+        // The lock rules run before anything is destroyed: another player's session and any running turn are
+        // never touched, while the caller's own idle lease does not stand in the way of deleting it.
+        val lease = leases.authorizeDeletion(player.uuid, id)
+        val record = data.store.find(id) ?: throw IllegalArgumentException("No such session")
+        // Only a session whose cell is installed in this terminal right now may be deleted; the store's own
+        // hash guard then rejects a stale listing instead of destroying a newer conversation.
+        if (backend.cells(player, terminal, false).none { it.id == record.cellId }) {
+            throw IllegalArgumentException("That session's cell is not installed in this terminal")
+        }
+        data.store.delete(id, expectedHash)
+        data.markChanged()
+        // The lease is only dropped once the store really changed, so a refused deletion keeps the session held.
+        if (lease != null) leases.release(player.uuid)
+        reply(ok {})
+    }
+
     private fun state(
         player: ServerPlayer,
         payload: JsonObject,
@@ -295,20 +326,15 @@ object SharedSessionMechanism {
     }
 
     /**
-     * Validates the terminal locator `{dimension,x,y,z}`. Only the shape is checked here; whether the
-     * position is really a usable terminal is the backend's decision.
+     * Validates the terminal locator `{dimension,x,y,z,side}` and returns its canonical form. Only the shape
+     * is checked here; whether the position really holds a usable terminal is the backend's decision. The
+     * side is part of the shape: a request that does not name the exact face is rejected instead of being
+     * resolved to some default one.
      */
     private fun locator(payload: JsonObject): JsonObject {
         val locator = payload["terminal"] as? JsonObject
             ?: throw IllegalArgumentException("Field 'terminal' must be an object")
-        val dimension = locator.requireString("dimension")
-        if (ResourceLocation.tryParse(dimension) == null) {
-            throw IllegalArgumentException("Field 'terminal.dimension' is not a valid resource location")
-        }
-        locator.requireInt("x")
-        locator.requireInt("y")
-        locator.requireInt("z")
-        return locator
+        return SharedTerminalLocator.parse(locator).toJson()
     }
 
     private fun ok(body: JsonObjectBuilder.() -> Unit): JsonObject = buildJsonObject {

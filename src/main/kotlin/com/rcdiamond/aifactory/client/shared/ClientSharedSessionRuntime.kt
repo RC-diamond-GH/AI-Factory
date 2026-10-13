@@ -8,7 +8,6 @@ import com.rcdiamond.aifactory.client.llm.AgentChatSession
 import com.rcdiamond.aifactory.client.llm.AgentSettings
 import com.rcdiamond.aifactory.client.llm.AgentUpdate
 import com.rcdiamond.aifactory.client.llm.ChatEntry
-import com.rcdiamond.aifactory.client.llm.ChatMessage
 import com.rcdiamond.aifactory.client.llm.LLMAPIError
 import com.rcdiamond.aifactory.client.llm.LLMContext
 import com.rcdiamond.aifactory.client.llm.SharedCellInfo
@@ -16,6 +15,7 @@ import com.rcdiamond.aifactory.client.llm.SharedSessionInfo
 import com.rcdiamond.aifactory.client.llm.SharedSessionList
 import com.rcdiamond.aifactory.client.model_provider.openai_completion.OpenAICompletion
 import com.rcdiamond.aifactory.client.tool.ToolManager
+import com.rcdiamond.aifactory.client.ui.ToolUseSummary
 import com.rcdiamond.aifactory.shared.SharedContextCodec
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
@@ -50,6 +50,7 @@ private const val OP_LIST = "list"
 private const val OP_CREATE = "create"
 private const val OP_OPEN = "open"
 private const val OP_SAVE = "save"
+private const val OP_DELETE = "delete"
 private const val OP_STATE = "state"
 private const val OP_TOOL = "tool"
 
@@ -69,7 +70,9 @@ private const val REQUEST_TIMEOUT_MILLIS = 30_000L
  *  - the session is only released once a save has been acknowledged and both the screen and the turn are
  *    inactive, so a close can never drop an unsaved conversation;
  *  - a save the server refuses (a full cell, a stale hash, a malformed context) keeps the session and the
- *    local conversation, and the next open or turn retries it instead of discarding either.
+ *    local conversation, and the next open or turn retries it instead of discarding either;
+ *  - a deletion drops the client's copy and the per-world cache only once the server has acknowledged it; a
+ *    locked or running session is refused, and an idle one is removed without being flushed first.
  *
  * The client never invents a session id, cell id or location the server did not return, and every operation
  * is addressed through the lock the server holds for this player; authority stays server side.
@@ -107,6 +110,9 @@ object ClientSharedSessionRuntime : AgentChatSession {
     private var settings: AgentSettings? = null
     private var active: Active? = null
     private var lastSaveFailure: String? = null
+
+    /** Set while a deletion awaits the server's answer; blocks new work on the session being removed. */
+    private var deleting = false
     private val mutableEntries = ArrayList<ChatEntry>()
 
     override val entries: List<ChatEntry> get() = mutableEntries
@@ -161,6 +167,7 @@ object ClientSharedSessionRuntime : AgentChatSession {
         settings = null
         active = null
         lastSaveFailure = null
+        deleting = false
         busy = false
         mutableEntries.clear()
         revision++
@@ -239,6 +246,68 @@ object ClientSharedSessionRuntime : AgentChatSession {
         }
     }
 
+    /**
+     * Deletes [session] from its terminal and, once the server acknowledges it, drops this client's copy.
+     *
+     * The server refuses a session another player holds, one that still has a running turn (this client's own
+     * included) or one that changed since the listing; nothing local is touched then, and a turn this client
+     * still owns is refused before anything is even sent. An idle conversation of this client's own is deleted
+     * as it is, without flushing the content that is about to disappear. The callback runs on the client
+     * thread and receives `null` on success.
+     */
+    fun delete(terminal: JsonObject, session: SharedSessionInfo, onResult: (String?) -> Unit) {
+        val generation = epoch
+        val owned = active?.takeIf { it.id == session.id }
+        // A turn still owns this conversation, so its unsaved work must not be thrown away from under it. The
+        // answer is deferred to a later client tick, exactly like an acknowledged reply, so a screen is never
+        // rebuilt from inside the click that asked for the deletion.
+        if (owned != null && (owned.running || turn != null || busy)) {
+            val refused = text("ai_factory.shared.delete_running")
+            Minecraft.getInstance().execute { if (epoch == generation) onResult(refused) }
+            return
+        }
+        deleting = true
+        scope.launch {
+            val error = try {
+                commands.withLock {
+                    if (epoch != generation) return@withLock
+                    rpc(
+                        OP_DELETE,
+                        buildJsonObject {
+                            put("terminal", terminal)
+                            put("id", session.id.toString())
+                            put("hash", session.hash)
+                        },
+                    )
+                    // The server's copy is gone, so this client drops its view and the per-world cache with it.
+                    forgetDeleted(session)
+                    cache.remove(worldKey(), session.id)
+                }
+                null
+            } catch (_: CancellationException) {
+                return@launch
+            } catch (failure: Exception) {
+                messageFor(failure)
+            } finally {
+                if (epoch == generation) deleting = false
+            }
+            if (epoch == generation) onResult(error)
+        }
+    }
+
+    /** Drops this client's view of [session] after the server confirmed the session itself is gone. */
+    private fun forgetDeleted(session: SharedSessionInfo) {
+        if (active?.id != session.id) return
+        turn?.cancel()
+        turn = null
+        agent = null
+        active = null
+        busy = false
+        mutableEntries.clear()
+        revision++
+        status = text("ai_factory.shared.deleted")
+    }
+
     // -------------------------------------------------------------- HUD state
 
     /** True while a session is open but its chat screen is not the visible screen. */
@@ -260,7 +329,7 @@ object ClientSharedSessionRuntime : AgentChatSession {
 
     override fun submit(message: String) {
         val session = active ?: return
-        if (busy || turn != null || message.isBlank() || Minecraft.getInstance().player == null) return
+        if (deleting || busy || turn != null || message.isBlank() || Minecraft.getInstance().player == null) return
         val generation = epoch
         busy = true
         status = text("ai_factory.shared.thinking")
@@ -283,11 +352,15 @@ object ClientSharedSessionRuntime : AgentChatSession {
                         }
                         is AgentUpdate.ToolStarted -> {
                             assistantIndex = -1
-                            status = text("ai_factory.chat.tool_running", update.name)
+                            // The placeholder uses the same label the finished summary will, so a tool never
+                            // changes its name mid-call; the raw arguments never reach the log.
+                            status = ToolUseSummary.running(update.name) { key, args -> text(key, *args) }
                             toolIndex = append("tool", status)
                         }
                         is AgentUpdate.ToolFinished -> {
-                            val result = "${update.name}: ${update.result}"
+                            val result = ToolUseSummary.finished(update.name, update.result) { key, args ->
+                                text(key, *args)
+                            }
                             if (toolIndex >= 0) {
                                 mutableEntries[toolIndex] = ChatEntry("tool", result)
                                 revision++
@@ -338,7 +411,7 @@ object ClientSharedSessionRuntime : AgentChatSession {
     }
 
     override fun reload() {
-        if (busy || turn != null) return
+        if (deleting || busy || turn != null) return
         val generation = epoch
         busy = true
         status = text("ai_factory.chat.loading")
@@ -369,7 +442,7 @@ object ClientSharedSessionRuntime : AgentChatSession {
     }
 
     override fun clear() {
-        if (busy || turn != null) return
+        if (deleting || busy || turn != null) return
         val session = active ?: return
         agent?.reset()
         mutableEntries.clear()
@@ -519,21 +592,10 @@ object ClientSharedSessionRuntime : AgentChatSession {
             // Preserve history/prompts, but old saved schemas must not resurrect removed tools or hide new ones.
             built.importContext(conversation.copy(tools = built.exportContext().tools))
         }
+        // The stored conversation is rebuilt through the same summary rules the live turn uses, so a reopened
+        // session never shows raw tool arguments. The model history itself is untouched.
         mutableEntries.clear()
-        for (message in built.history) {
-            when (message) {
-                is ChatMessage.User -> mutableEntries += ChatEntry("user", message.content)
-                is ChatMessage.Assistant -> {
-                    message.content?.takeIf { it.isNotEmpty() }?.let {
-                        mutableEntries += ChatEntry("assistant", it)
-                    }
-                    for (call in message.toolCalls) {
-                        mutableEntries += ChatEntry("tool", "${call.name}: ${call.arguments}")
-                    }
-                }
-                is ChatMessage.Tool -> mutableEntries += ChatEntry("tool", message.content)
-            }
-        }
+        mutableEntries += ToolUseSummary.history(built.history) { key, args -> text(key, *args) }
         revision++
         active = Active(
             session.id,

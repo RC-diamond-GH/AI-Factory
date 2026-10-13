@@ -5,6 +5,7 @@ import com.rcdiamond.aifactory.shared.SharedSessionLimits
 import com.rcdiamond.aifactory.shared.SharedSessionSavedData
 import com.rcdiamond.aifactory.shared.SharedSessionStore
 import java.util.UUID
+import net.minecraft.ChatFormatting
 import net.minecraft.nbt.CompoundTag
 import net.minecraft.nbt.ListTag
 import net.minecraft.nbt.StringTag
@@ -81,6 +82,12 @@ internal object MEIntelligentCellTooltip {
     }
 
     fun append(tag: CompoundTag?, capacityBytes: Long, tooltip: MutableList<Component>) {
+        if (tag?.hasUUID(MEIntelligentCellRef.TAG_CELL_ID) == true) {
+            tooltip.add(Component.translatable(
+                "tooltip.ai_factory.me_intelligent_cell.id",
+                tag.getUUID(MEIntelligentCellRef.TAG_CELL_ID).toString().take(8),
+            ).withStyle(ChatFormatting.GRAY))
+        }
         val summary = tag?.get(TAG_SUMMARY) as? CompoundTag
         val titles = summary?.get(TAG_TITLES) as? ListTag
         if (titles != null) {

@@ -86,6 +86,29 @@ class SharedSessionLeases {
         return lease
     }
 
+    /**
+     * Authorizes deleting [sessionId] for [player] and returns the caller's *own* lease on it when there is
+     * one, so the caller can release it only after the store mutation succeeded.
+     *
+     * A session held by another player is never deletable, and neither is a session whose turn is still
+     * running — including the caller's own, whose unsaved conversation must not be thrown away underneath it.
+     * An idle lease of the caller's own does not block deletion: the conversation is about to disappear, so
+     * nothing needs to be flushed first.
+     *
+     * @throws IllegalArgumentException with a message safe to show the requesting player.
+     */
+    fun authorizeDeletion(player: UUID, sessionId: UUID): SharedSessionLease? {
+        val holder = bySession[sessionId]
+        if (holder != null && holder.player != player) {
+            throw IllegalArgumentException("That session is already in use by another player")
+        }
+        val mine = byPlayer[player]?.takeIf { it.sessionId == sessionId }
+        if (mine != null && mine.running) {
+            throw IllegalArgumentException("That session has a running turn; stop it before deleting it")
+        }
+        return mine
+    }
+
     /** Frees the lease held by [player], if any. Returns the released lease. */
     fun release(player: UUID): SharedSessionLease? {
         val lease = byPlayer.remove(player) ?: return null

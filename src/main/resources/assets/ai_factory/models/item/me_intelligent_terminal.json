@@ -1,3 +1,38 @@
 {
-  "parent": "ai_factory:block/me_intelligent_terminal"
+  "parent": "ae2:item/part_base",
+  "ambientocclusion": false,
+  "textures": {
+    "particle": "ae2:part/monitor_back",
+    "front": "ai_factory:part/me_intelligent_terminal_front",
+    "sides": "ae2:part/monitor_sides",
+    "back": "ae2:part/monitor_back",
+    "indicator": "ae2:part/monitor_sides_status"
+  },
+  "elements": [
+    {
+      "name": "Screen",
+      "from": [2, 2, 8],
+      "to": [14, 14, 9],
+      "faces": {
+        "north": { "uv": [0, 0, 16, 16], "texture": "#front" },
+        "south": { "uv": [0, 0, 16, 16], "texture": "#back" },
+        "east": { "texture": "#sides" },
+        "west": { "texture": "#sides" },
+        "up": { "texture": "#sides" },
+        "down": { "texture": "#sides" }
+      }
+    },
+    {
+      "name": "Mount",
+      "from": [4, 4, 9],
+      "to": [12, 12, 10],
+      "faces": {
+        "south": { "texture": "#back" },
+        "east": { "texture": "#indicator" },
+        "west": { "texture": "#indicator" },
+        "up": { "texture": "#indicator" },
+        "down": { "texture": "#indicator" }
+      }
+    }
+  ]
 }

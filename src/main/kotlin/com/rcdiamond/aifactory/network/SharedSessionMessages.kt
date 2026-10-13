@@ -29,7 +29,7 @@ class SharedSessionResponseMessage(
 )
 
 /**
- * Asks the client to open the terminal at [locator]. The locator is a bounded `{dimension,x,y,z}` JSON text;
- * it is small enough to travel whole, so it is not chunked.
+ * Asks the client to open the terminal at [locator]. The locator is a bounded `{dimension,x,y,z,side}` JSON
+ * text naming the exact terminal part; it is small enough to travel whole, so it is not chunked.
  */
 class SharedTerminalOpenMessage(val locator: String)

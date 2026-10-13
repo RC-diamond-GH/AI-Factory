@@ -16,8 +16,8 @@ class SharedSessionResponseEvent(val requestId: UUID, val payload: JsonObject) :
 /**
  * Posted on the client main thread when the server tells the client to open a terminal.
  *
- * [terminal] is the validated locator `{dimension,x,y,z}` the client core uses to open the session-selection
- * screen. The server sends this only after its own block-use validation; the client never trusts a locator it
- * was not sent here.
+ * [terminal] is the validated locator `{dimension,x,y,z,side}` the client core uses to open the
+ * session-selection screen and to name the same terminal part on every later request. The server sends this
+ * only after its own block-use validation; the client never trusts a locator it was not sent here.
  */
 class SharedTerminalOpenEvent(val terminal: JsonObject) : Event()

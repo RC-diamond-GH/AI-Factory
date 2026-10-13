@@ -182,6 +182,30 @@ class SharedSessionStore {
         return record
     }
 
+    /**
+     * Removes [id] from the store, freeing its session slot and its ME bytes in its cell.
+     *
+     * The optimistic guard runs first: [expectedHash] is the hash the caller last saw, so a stale listing
+     * can never destroy a conversation somebody else has since replaced.
+     *
+     * @throws IllegalArgumentException when the session does not exist, when its stored hash no longer
+     * equals [expectedHash], or when the document is protected read-only.
+     */
+    fun delete(id: UUID, expectedHash: String): SharedSessionRecord {
+        requireWritable()
+        val record = sessions[id] ?: throw IllegalArgumentException("No such session")
+        if (record.hash != expectedHash) {
+            throw IllegalArgumentException("The session changed on the server; refresh before deleting it")
+        }
+        sessions.remove(id)
+        usage.getValue(record.cellId).apply {
+            sessions--
+            bytes -= record.charge
+            titles = null
+        }
+        return record
+    }
+
     /** Whether [id] exists and its cell is one of [cellIds]. */
     fun isMountedIn(id: UUID, cellIds: Set<UUID>): Boolean {
         val record = sessions[id] ?: return false

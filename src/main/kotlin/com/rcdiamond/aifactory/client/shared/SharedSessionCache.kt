@@ -91,6 +91,20 @@ class SharedSessionCache(private val root: Path = defaultRoot()) {
             prune(directory)
         }
 
+    /**
+     * Drops the cached conversation of [sessionId] in [worldKey], used once the server confirms the session
+     * itself is gone. A missing entry is not an error: the two stores are independent.
+     */
+    suspend fun remove(worldKey: String, sessionId: UUID): Unit = withContext(Dispatchers.IO) {
+        val target = fileFor(worldKey, sessionId)
+        try {
+            Files.deleteIfExists(target)
+        } catch (ignored: IOException) {
+            LOGGER.warn("Could not drop the cached shared session {}", sessionId)
+        }
+        runCatching { Files.deleteIfExists(target.resolveSibling("$sessionId.json.tmp")) }
+    }
+
     private fun readEntry(json: JsonObject): CachedSharedSession? {
         val hash = (json["hash"] as? JsonPrimitive)?.contentOrNull ?: return null
         val tokens = (json["tokens"] as? JsonPrimitive)?.longOrNull ?: 0L

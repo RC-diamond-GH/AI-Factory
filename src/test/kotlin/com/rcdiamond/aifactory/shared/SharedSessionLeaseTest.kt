@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -20,11 +21,12 @@ class SharedSessionLeaseTest {
     private val other: UUID = UUID.randomUUID()
     private val cell: UUID = UUID.randomUUID()
 
-    private fun terminal(x: Int = 1): JsonObject = buildJsonObject {
+    private fun terminal(x: Int = 1, side: String = "north"): JsonObject = buildJsonObject {
         put("dimension", "minecraft:overworld")
         put("x", x)
         put("y", 64)
         put("z", 0)
+        put("side", side)
     }
 
     @Test
@@ -81,6 +83,19 @@ class SharedSessionLeaseTest {
     }
 
     @Test
+    fun `reopening the same position through another side keeps the full side identity`() {
+        val leases = SharedSessionLeases()
+        leases.acquire(alice, session, cell, terminal(side = "north"))
+
+        val again = leases.acquire(alice, session, cell, terminal(side = "south"))
+
+        // Same player, session and coordinates but a different face, which is a different terminal: the lease
+        // must keep the face that was actually used instead of collapsing the two into a position-only address.
+        assertEquals(terminal(side = "south"), again.terminal)
+        assertNotEquals(terminal(side = "north"), again.terminal)
+    }
+
+    @Test
     fun `a player may not own a second session`() {
         val leases = SharedSessionLeases()
         leases.acquire(alice, session, cell, terminal())
@@ -120,5 +135,52 @@ class SharedSessionLeaseTest {
         assertEquals(0, leases.size())
         assertNull(leases.leaseFor(alice))
         assertNull(leases.holderOf(other))
+    }
+
+    @Test
+    fun `an idle lease of the caller's own does not block deletion and survives until it is released`() {
+        val leases = SharedSessionLeases()
+        val lease = leases.acquire(alice, session, cell, terminal())
+        lease.update(screenOpen = false, running = false)
+
+        assertSame(lease, leases.authorizeDeletion(alice, session))
+        // Authorizing never removes the lease: the caller releases it only after the store really changed.
+        assertEquals(alice, leases.holderOf(session))
+
+        leases.release(alice)
+        assertNull(leases.holderOf(session))
+        assertNull(leases.leaseFor(alice))
+    }
+
+    @Test
+    fun `another player's lease blocks deletion`() {
+        val leases = SharedSessionLeases()
+        leases.acquire(alice, session, cell, terminal())
+
+        assertFailsWith<IllegalArgumentException> { leases.authorizeDeletion(bob, session) }
+        assertEquals(alice, leases.holderOf(session))
+        assertEquals(1, leases.size())
+    }
+
+    @Test
+    fun `a running turn blocks deletion even for the player who owns it`() {
+        val leases = SharedSessionLeases()
+        val lease = leases.acquire(alice, session, cell, terminal())
+        lease.update(screenOpen = false, running = true)
+        assertFailsWith<IllegalArgumentException> { leases.authorizeDeletion(alice, session) }
+
+        // Once the turn stops, the same lease no longer stands in the way.
+        lease.update(screenOpen = false, running = false)
+        assertSame(lease, leases.authorizeDeletion(alice, session))
+    }
+
+    @Test
+    fun `a caller holding a different session may still delete an unheld one`() {
+        val leases = SharedSessionLeases()
+        leases.acquire(alice, other, cell, terminal())
+
+        assertNull(leases.authorizeDeletion(alice, session))
+        assertEquals(alice, leases.holderOf(other))
+        assertEquals(1, leases.size())
     }
 }

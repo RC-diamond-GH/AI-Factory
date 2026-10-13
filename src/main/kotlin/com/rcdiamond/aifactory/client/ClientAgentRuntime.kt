@@ -12,6 +12,7 @@ import com.rcdiamond.aifactory.client.model_provider.openai_completion.OpenAICom
 import com.rcdiamond.aifactory.client.tool.ExecuteCommandTool
 import com.rcdiamond.aifactory.client.tool.GiveItemTool
 import com.rcdiamond.aifactory.client.tool.ToolManager
+import com.rcdiamond.aifactory.client.ui.ToolUseSummary
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -68,11 +69,13 @@ object ClientAgentRuntime : AgentChatSession {
                         }
                         is AgentUpdate.ToolStarted -> {
                             assistantIndex = -1
-                            status = text("ai_factory.chat.tool_running", update.name)
+                            status = ToolUseSummary.running(update.name) { key, args -> text(key, *args) }
                             toolIndex = append("tool", status)
                         }
                         is AgentUpdate.ToolFinished -> {
-                            val result = "${update.name}: ${update.result}"
+                            val result = ToolUseSummary.finished(update.name, update.result) { key, args ->
+                                text(key, *args)
+                            }
                             if (toolIndex >= 0) {
                                 mutableEntries[toolIndex] = ChatEntry("tool", result)
                                 revision++

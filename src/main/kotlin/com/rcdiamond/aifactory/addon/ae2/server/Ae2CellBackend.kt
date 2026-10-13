@@ -1,21 +1,19 @@
 package com.rcdiamond.aifactory.addon.ae2.server
 
 import appeng.api.implementations.blockentities.IChestOrDrive
+import appeng.api.parts.PartHelper
 import appeng.blockentity.AEBaseBlockEntity
 import appeng.blockentity.AEBaseInvBlockEntity
 import appeng.blockentity.storage.ChestBlockEntity
-import com.rcdiamond.aifactory.addon.ae2.blockentity.MEIntelligentTerminalBlockEntity
 import com.rcdiamond.aifactory.addon.ae2.item.MEIntelligentCellItem
+import com.rcdiamond.aifactory.addon.ae2.part.MEIntelligentTerminalPart
 import com.rcdiamond.aifactory.addon.ae2.storage.MEIntelligentCellRef
 import com.rcdiamond.aifactory.shared.SharedCell
 import com.rcdiamond.aifactory.shared.SharedTerminalBackend
+import com.rcdiamond.aifactory.shared.SharedTerminalLocator
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.intOrNull
-import net.minecraft.core.BlockPos
 import net.minecraft.core.registries.Registries
 import net.minecraft.resources.ResourceKey
-import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.level.ServerPlayer
 
 /**
@@ -34,11 +32,12 @@ import net.minecraft.server.level.ServerPlayer
  *   holds the session lease.
  *
  * ## Fail-closed behaviour
- * A malformed locator, an unloaded chunk, a missing terminal block, a dead network or a forbidden player all
- * raise [IllegalArgumentException] with a message that is safe to show the requesting player; the core turns
- * that into `{"ok":false,"error":...}` and nothing is listed, opened or executed. With `allowRemote` the
- * distance bound is dropped (a background turn keeps working while the screen is closed), but dimension,
- * load, active grid and interaction permission never are.
+ * A malformed locator, an unloaded chunk, a cable with no terminal on the requested side, a dead network or a
+ * forbidden player all raise [IllegalArgumentException] with a message that is safe to show the requesting
+ * player; the core turns that into `{"ok":false,"error":...}` and nothing is listed, opened or executed. The
+ * locator names the terminal's exact dimension, position and side — no face is ever assumed. With
+ * `allowRemote` the distance bound is dropped (a background turn keeps working while the screen is closed),
+ * but dimension, load, active grid and interaction permission never are.
  */
 object Ae2CellBackend : SharedTerminalBackend {
 
@@ -111,34 +110,24 @@ object Ae2CellBackend : SharedTerminalBackend {
     }
 
     private fun locate(player: ServerPlayer, locator: JsonObject): LocatedTerminal {
-        val dimension = locator.string("dimension")
-        val levelKey = ResourceLocation.tryParse(dimension)
-            ?.let { ResourceKey.create(Registries.DIMENSION, it) }
-            ?: throw IllegalArgumentException(ERROR_TERMINAL)
+        val parsed = SharedTerminalLocator.parse(locator)
+        val levelKey = ResourceKey.create(Registries.DIMENSION, parsed.dimension)
         val level = player.server.getLevel(levelKey) ?: throw IllegalArgumentException(ERROR_TERMINAL)
-        val pos = BlockPos(locator.int("x"), locator.int("y"), locator.int("z"))
-        if (player.serverLevel() !== level || !level.isLoaded(pos)) {
-            throw IllegalArgumentException(MEIntelligentTerminalBlockEntity.ERROR_NOT_LOADED)
+        // The dimension and the load state are checked before anything is looked up, and the lookup itself
+        // never forces a chunk to load: a terminal in an unloaded chunk is a rejection, not a side effect.
+        if (player.serverLevel() !== level || !level.isLoaded(parsed.pos)) {
+            throw IllegalArgumentException(MEIntelligentTerminalPart.ERROR_NOT_LOADED)
         }
 
-        val terminal = level.getBlockEntity(pos) as? MEIntelligentTerminalBlockEntity
-            ?: throw IllegalArgumentException(MEIntelligentTerminalBlockEntity.ERROR_NOT_LOADED)
+        // The locator names one exact face, so there is no default and no guessing: a cable with no terminal
+        // on the requested side resolves to nothing.
+        val terminal = PartHelper.getPart(level, parsed.pos, parsed.side) as? MEIntelligentTerminalPart
+            ?: throw IllegalArgumentException(MEIntelligentTerminalPart.ERROR_NOT_LOADED)
         return LocatedTerminal(terminal)
     }
 
-    private fun JsonObject.string(name: String): String {
-        val element = this[name] as? JsonPrimitive ?: throw IllegalArgumentException(ERROR_TERMINAL)
-        if (!element.isString) throw IllegalArgumentException(ERROR_TERMINAL)
-        return element.content
-    }
-
-    private fun JsonObject.int(name: String): Int {
-        val element = this[name] as? JsonPrimitive ?: throw IllegalArgumentException(ERROR_TERMINAL)
-        return element.intOrNull ?: throw IllegalArgumentException(ERROR_TERMINAL)
-    }
-
     /** A terminal resolved from a request locator. */
-    private class LocatedTerminal(val terminal: MEIntelligentTerminalBlockEntity)
+    private class LocatedTerminal(val terminal: MEIntelligentTerminalPart)
 
     /** Safe message for a locator that cannot be resolved to a terminal. */
     const val ERROR_TERMINAL: String = "That intelligent terminal is not available"
