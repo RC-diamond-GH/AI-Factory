@@ -1,13 +1,13 @@
-package com.rcdiamond.aifactory.addon.ae2.client
+package com.rcdiamond.aifactory.addon.ae2.client.tool
 
-import com.rcdiamond.aifactory.addon.ae2.Ae2ToolLimits
+import com.rcdiamond.aifactory.addon.ae2.tool.Ae2ToolLimits
 import com.rcdiamond.aifactory.client.tool.ToolArgumentException
 import com.rcdiamond.aifactory.client.tool.ToolManager
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 
 /**
- * Registers the three ME terminal tools.
+ * Registers the five ME terminal tools.
  *
  * The tools hold only schemas and argument policy; every request is handed to [gateway], which the
  * client composition root wires to the locked terminal session. Nothing here references the Applied
@@ -23,6 +23,8 @@ object Ae2Tools {
         manager.register(Ae2ReadInventoryTool(gateway))
         manager.register(Ae2ItemDetailsTool(gateway))
         manager.register(Ae2CraftingPlanTool(gateway))
+        manager.register(Ae2RequestCraftingTool(gateway))
+        manager.register(Ae2ManagePatternsTool(gateway))
     }
 
     /** Reads the call's arguments as an object. */

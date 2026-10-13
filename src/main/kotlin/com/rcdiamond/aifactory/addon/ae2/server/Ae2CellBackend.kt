@@ -1,9 +1,12 @@
-package com.rcdiamond.aifactory.addon.ae2
+package com.rcdiamond.aifactory.addon.ae2.server
 
 import appeng.api.implementations.blockentities.IChestOrDrive
 import appeng.blockentity.AEBaseBlockEntity
 import appeng.blockentity.AEBaseInvBlockEntity
 import appeng.blockentity.storage.ChestBlockEntity
+import com.rcdiamond.aifactory.addon.ae2.blockentity.MEIntelligentTerminalBlockEntity
+import com.rcdiamond.aifactory.addon.ae2.item.MEIntelligentCellItem
+import com.rcdiamond.aifactory.addon.ae2.storage.MEIntelligentCellRef
 import com.rcdiamond.aifactory.shared.SharedCell
 import com.rcdiamond.aifactory.shared.SharedTerminalBackend
 import kotlinx.serialization.json.JsonObject
@@ -81,6 +84,7 @@ object Ae2CellBackend : SharedTerminalBackend {
         terminal: JsonObject,
         operation: String,
         arguments: JsonObject,
+        authorize: () -> Unit,
         reply: (JsonObject) -> Unit,
     ) {
         val located = locate(player, terminal)
@@ -88,7 +92,7 @@ object Ae2CellBackend : SharedTerminalBackend {
         // relaxed here for the same reason as in save/state: a background turn keeps running while the screen
         // is closed. Everything else - dimension, load, active grid, interaction permission - still applies.
         located.terminal.resolve(player, allowRemote = true)
-        Ae2ToolExecutor.execute(player, located.terminal, operation, arguments, reply)
+        Ae2ToolExecutor.execute(player, located.terminal, operation, arguments, authorize, reply)
     }
 
     /**

@@ -1,4 +1,4 @@
-package com.rcdiamond.aifactory.addon.ae2
+package com.rcdiamond.aifactory.addon.ae2.storage
 
 import appeng.api.inventories.InternalInventory
 import java.util.UUID

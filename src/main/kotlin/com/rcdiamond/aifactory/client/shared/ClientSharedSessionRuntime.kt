@@ -1,10 +1,9 @@
 package com.rcdiamond.aifactory.client.shared
 
-import com.rcdiamond.aifactory.addon.ae2.client.Ae2Tools
+import com.rcdiamond.aifactory.addon.ae2.client.tool.Ae2Tools
 import com.rcdiamond.aifactory.client.agent.ReactAgent
 import com.rcdiamond.aifactory.client.config.ClientConfigFiles
 import com.rcdiamond.aifactory.client.config.ClientConfigurationException
-import com.rcdiamond.aifactory.client.game.ClientGameActions
 import com.rcdiamond.aifactory.client.llm.AgentChatSession
 import com.rcdiamond.aifactory.client.llm.AgentSettings
 import com.rcdiamond.aifactory.client.llm.AgentUpdate
@@ -16,8 +15,6 @@ import com.rcdiamond.aifactory.client.llm.SharedCellInfo
 import com.rcdiamond.aifactory.client.llm.SharedSessionInfo
 import com.rcdiamond.aifactory.client.llm.SharedSessionList
 import com.rcdiamond.aifactory.client.model_provider.openai_completion.OpenAICompletion
-import com.rcdiamond.aifactory.client.tool.ExecuteCommandTool
-import com.rcdiamond.aifactory.client.tool.GiveItemTool
 import com.rcdiamond.aifactory.client.tool.ToolManager
 import com.rcdiamond.aifactory.shared.SharedContextCodec
 import kotlinx.coroutines.CancellationException
@@ -64,8 +61,8 @@ private const val REQUEST_TIMEOUT_MILLIS = 30_000L
  *
  * The conversation lives on the server, and this runtime is the only place that keeps the client's copy of
  * it in sync: it opens or creates the session the server named, reuses the per-world cache whenever the
- * server's hash still matches, runs the ordinary [ReactAgent] loop locally with the ordinary client tools,
- * and saves the resulting context back before it ever reports that nothing is running any more.
+ * server's hash still matches, runs the ordinary [ReactAgent] loop locally with only ME terminal tools,
+ * and saves the resulting context back before it reports that nothing is running any more.
  *
  * Lifetime rules, all expressed through the server's `state` operation:
  *  - closing the chat screen neither cancels the turn nor releases the session while it runs;
@@ -501,7 +498,10 @@ object ClientSharedSessionRuntime : AgentChatSession {
 
         // A brand-new session stores no conversation. A blank one stays a fresh conversation with this
         // client's own prompt instead of importing an empty prompt.
-        if (conversation != null && !isBlankConversation(conversation)) built.importContext(conversation)
+        if (conversation != null && !isBlankConversation(conversation)) {
+            // Preserve history/prompts, but old saved schemas must not resurrect removed tools or hide new ones.
+            built.importContext(conversation.copy(tools = built.exportContext().tools))
+        }
         mutableEntries.clear()
         for (message in built.history) {
             when (message) {
@@ -652,17 +652,14 @@ object ClientSharedSessionRuntime : AgentChatSession {
     // ------------------------------------------------------------- composition
 
     /**
-     * Loads the client configuration and rebuilds provider, tools and agent exactly like the local chat
-     * composition root, adding the ME terminal tools when the addon is loaded. Never creates a second agent
-     * implementation: the shared runtime runs the same [ReactAgent] with the same client tools.
+     * Loads the client configuration and rebuilds provider, tools and agent with only ME terminal tools.
+     * The local chat's item grants and arbitrary commands are intentionally unavailable to this assistant.
      */
     private suspend fun configureAgent(): ReactAgent {
         val config = withContext(Dispatchers.IO) {
             ClientConfigFiles.load(FMLPaths.CONFIGDIR.get().resolve("ai-factory"))
         }
         val manager = ToolManager()
-        manager.register(GiveItemTool(ClientGameActions))
-        manager.register(ExecuteCommandTool(ClientGameActions))
         if (ModList.get().isLoaded("ae2")) {
             // Addon class only: Ae2Tools contains no AE2 API, so no AE2 type is linked from here.
             Ae2Tools.register(manager, ::sendTool)

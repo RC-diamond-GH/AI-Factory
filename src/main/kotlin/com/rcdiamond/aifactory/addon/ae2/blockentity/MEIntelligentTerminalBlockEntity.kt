@@ -1,4 +1,4 @@
-package com.rcdiamond.aifactory.addon.ae2
+package com.rcdiamond.aifactory.addon.ae2.blockentity
 
 import appeng.api.networking.GridFlags
 import appeng.api.networking.IGrid

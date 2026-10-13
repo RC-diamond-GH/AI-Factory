@@ -1,4 +1,4 @@
-package com.rcdiamond.aifactory.addon.ae2
+package com.rcdiamond.aifactory.addon.ae2.tool
 
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -6,7 +6,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 /**
- * Validation and normalization for the three ME terminal operations.
+ * Validation and normalization for inventory, details and both crafting operations.
  *
  * Arguments reaching the server are untrusted, so the server parses them again with the very same
  * code the client uses. Rejections are [IllegalArgumentException]s whose messages name the parameter

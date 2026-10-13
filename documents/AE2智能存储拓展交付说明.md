@@ -50,7 +50,13 @@
 | `client.shared.*` | 本地缓存与同步、会话选择、Provider 组合、共享回合生命周期、HUD |
 | `client.agent.ReactAgent` | 原有 ReAct 引擎，增加完整上下文导入/导出；不认识 ME 网络 |
 | `client.ui.AgentChatScreen` | 通用聊天显示与生命周期回调；由会话契约决定关闭是否取消 |
-| `addon.ae2.*` | 条件注册、元件/终端、网格接入授权、AE2 Tool 实际游戏侧实现 |
+| `addon.ae2.Ae2Addon` | 唯一根包入口，负责条件注册与公共初始化；反射加载类名保持不变 |
+| `addon.ae2.block.*` / `addon.ae2.blockentity.*` | ME 智能终端方块交互、掉落及方块实体的网格生命周期与授权 |
+| `addon.ae2.item.*` | ME 智能元件物品与容量档位 |
+| `addon.ae2.storage.*` | AE2 元件处理器、挂载库存、元件 UUID 引用与使用量读取 |
+| `addon.ae2.server.*` | 共享会话后端、库存/合成工具执行与样板管理执行 |
+| `addon.ae2.tool.*` | 无 Minecraft/AE2 API 依赖的共用参数校验、操作限制、库存分页与 NBT 视图 |
+| `addon.ae2.client.tool.*` | 五项客户端 ME 工具的定义、校验与注册 |
 
 ```mermaid
 sequenceDiagram
@@ -90,13 +96,15 @@ sequenceDiagram
 
 ## 4. AE2 Tool
 
-仅在共享 ME 会话中额外注册以下 Tool；普通聊天不凭空获得任意 ME 网络访问权。
+共享 ME 会话仅注册以下五项 Tool；不注册 `give_item` 或 `execute_command`。普通 G 键聊天保留原有工具，不凭空获得 ME 网络访问权。旧 ME 会话恢复时保留提示和历史，但以当前 ME 工具集替换保存过的 Tool Schema；历史操作不重放。
 
 | Tool | 参数 | 结果与语义 |
 | --- | --- | --- |
 | `ae2_read_inventory` | `filter`、`page`、`page_size` | 当前库存与可合成项、数量、显示名、资源 ID、完整 Key 指纹、是否可合成、分页元数据；可合成但无库存的项数量为 0 |
 | `ae2_item_details` | `key`，可选 `path/depth/page/page_size` | 实时确认此 Key 属于该网络，返回身份、数量、可合成状态与有界 NBT 视图；物品另含最大堆叠与损坏状态 |
 | `ae2_crafting_plan` | `key`、`amount` | 真实 AE2 异步计划，包括缺料、所需 bytes、模拟状态、最终输出与相关用量；固定 `submitted=false` |
+| `ae2_request_crafting` | `key`、`amount` | 为当前网络已经有样板的物品计算并提交真实 AE2 合成任务；成功 `submitted=true`，缺料或 CPU 不可用则拒绝 |
+| `ae2_manage_patterns` | `action=view` 或 `encode_install`；详见下文 | AI 可读取的样板管理终端式视图，以及样板编辑、编码和指定容器槽位投放 |
 
 `key` 是类型、资源 ID 和完整 NBT 的稳定 SHA-256，不是简单的物品 ID；不同 NBT 变体分开识别，相同名称/ID 的变体也有稳定分页。先读库存获得 `key`，再查询详情或计算计划。缓存命中仍检查 Key 当前存在于该网络或当前可合成，不能使用另一网格的缓存绕过归属检查。
 
@@ -104,7 +112,18 @@ NBT 路径例如 `tag.display.Name`、`tag.Items[3].id`；支持转义成员名�
 
 计划通过 `ICraftingService.beginCraftingCalculation(..., REPORT_MISSING_ITEMS)` 计算，服务端 tick 只在 `Future.isDone` 后读取结果，不阻塞等待。完成时重新校验终端和原会话锁/元件归属。全服最多 4 个并行计划，每玩家 1 个，240 tick 后取消（20 TPS 时约 12 秒；低 TPS 可能先触发客户端墙钟超时）。缺料最多显示 64 种并标记省略。数量范围 1–1,000,000,000。
 
-**“发起合成计划”不等于提交合成任务。** 没有调用 `submitJob`、占用合成 CPU、预留/提取材料或作弊给予产物；没有新增自动提交、确认提交或接收产物机制。这里按使用者列出的“计划”语义实现。
+**预览与提交分开。** `ae2_crafting_plan` 不调用 `submitJob`，不预留/提取材料；`ae2_request_crafting` 只接受当前可合成的物品 Key，拒绝缺料模拟，并在提交前重新检查同一网格、可合成性、连接、租约和智能元件仍挂载。使用 AE2 自动选择合适 CPU，返回其真实拒绝原因（忙碌、容量不足、离线或缺料等）。成功提交后，材料由 AE2 消耗，产物回到网络而不是玩家背包。服务器停止会取消未完成计算。
+
+### 样板视图与编码
+
+`ae2_manage_patterns` 是供模型读取的 JSON 工具视图，不是新增人类 GUI：
+
+- `{"action":"view","filter":"","page":0,"page_size":20}` 返回容器名、`dimension`、`container`（`x,y,z/side`）、槽位数、空槽、样板指纹、模式、配方与真实输入输出。`show` 支持 `visible`、`not_full`、`all`；可用 `container` 缩小扫描范围。
+- `{"action":"encode_install","dimension":"minecraft:overworld","container":"12,64,-3/block","slot":0,"expected":"empty","mode":"crafting","grid":[{"item":"minecraft:oak_log"}]}` 编码并装入该槽位。坐标只是示例，必须使用视图返回的维度与容器。已有槽位使用其 `pattern_key` 作为 `expected`，原位复用样板；空槽必须从此网络实际提取一张空白样板，没有则拒绝，不凭空创建。
+- `crafting` 使用最多 9 格的 `grid`，空格写 `null`；`processing` 使用 `inputs` / `outputs` 的 `{slot,key,amount}` 列表，分别最多 81 / 27 格，主输出必须在 0 格；`stonecutting` 使用 `input` 与可选 `output` / `recipe`；`smithing` 使用 `template`、`base`、`addition`。工作台、切石和锻造输出由服务端真实配方确定；加工模式描述外部机器过程，不自动推断或验证该机器的配方。AE2 无法编码的锻造纹饰配方拒绝。
+- Key 可以是视图/库存的完整指纹，或不带 NBT 的 `{"item":"namespace:path"}` / `{"fluid":"namespace:path"}`。指纹在当前网络或当前样板中重新解析，不接受任意 SNBT；加工流体数量使用 AE2 的 mB 单位。
+- 安装要求目标属于当前 active 网格且在样板管理终端中可见；检查容器自身维度中的加载与 `mayInteract`，以及会话租约。目标槽位变化则拒绝，写入通过 AE2 `InternalInventory` 触发保存和合成列表刷新。失败时先恢复旧槽位，再归还已提取空白样板；网络无法接收退款时将真实物品退回玩家背包，满背包则掉落。
+- 单次扫描最多 256 个容器、1024 个样板槽位；截断通过 `scan_truncated` 报告，容器的空槽列表最多 64 个。单份原生加工样板完整显示最多 81 个输入与 27 个输出。大型网络可指定 `container` 查看目标；安装按维度与容器定位，避免量子桥两端相同坐标误投放。
 
 ## 5. 授权、兼容与边界
 
@@ -118,7 +137,7 @@ NBT 路径例如 `tag.display.Name`、`tag.Items[3].id`；支持转义成员名�
 
 ### AE2 内部耦合
 
-查询/计划/元件处理以公开 `appeng.api.*` 为主，但终端复用了 `AEBaseEntityBlock` / `AENetworkBlockEntity` 的生命周期与网格行为；驱动器元件 Stack 和持久化通知通过 `AEBaseInvBlockEntity` 的库存访问，ME 箱子槽位映射使用 `ChestBlockEntity`。这些是公开 Java 类，但不属于稳定 API，因此版本**精确锁定 15.4.11**，没有承诺未来 15.x 兼容。
+查询/合成以公开 `appeng.api.*` 为主，终端生命周期、驱动器访问和样板容器发现/模式详情仍耦合 AE2 内部公开 Java 类，包括 `PatternContainer`、`PatternProviderLogicHost` 和四种原生样板实现。这些不属于稳定 API，因此版本**精确锁定 15.4.11**，没有承诺未来 15.x 兼容。
 
 驱动器状态来自外部世界数据，不来自物品插入/提取。后台保存后 LED 刷新由终端交互触发，可能落后一个交互；终端使用量与服务端容量校验从实时数据读取。元件不支持普通存储单元的分区/工作台 UI。
 
@@ -128,7 +147,7 @@ NBT 路径例如 `tag.display.Name`、`tag.Items[3].id`；支持转义成员名�
 2. **区块卸载、终端拆除、断电/失去通道、切维度**：随后保存/Tool/状态校验失败，后台回合可能拿到拒绝观察，最终内容可能只留在客户端内存；锁可能保留到接入恢复、正常退出或服务端停止。没有强制保持区块加载或迁移回合接入点。
 3. **服务器崩溃/重启**：锁不持久化；未到世界落盘周期的已确认保存也可能丢失。下一次打开以服务端持久化哈希为准，不用客户端缓存偷偷覆盖较旧的存档。
 4. **容量已满或只读存档**：保留未保存内容与锁，不截断历史，也不报告保存成功。容量问题可清空当前历史后保存；只读损坏数据需要恢复备份。清空不一定能克服其他会话已占满容量、提示/Schema 本身过大或元件不再安装的问题。
-5. **低 TPS/Tool 超时**：回合收到超时观察，不自动重试。计划没有提交任务，不会产生待撤销的自动合成作业；其他原有命令 Tool 已执行的世界操作不能回滚。
+5. **低 TPS/Tool 超时**：回合收到超时观察，不自动重试。只读计划没有世界副作用；合成请求或样板安装可能已经完成，客户端超时/取消不会撤销它们，应先检查网络实际状态，再决定是否重复操作。
 6. **本地缓存与世界备份**：服务器地址/LAN 地址复用可能共享缓存目录；会话 UUID 和正文哈希仍需一致，否则重新同步。离线读取缓存不是取得服务端编辑权。
 
 ## 6. 使用与游戏内验收
@@ -136,7 +155,7 @@ NBT 路径例如 `tag.display.Name`、`tag.Items[3].id`；支持转义成员名�
 1. 配好客户端 `config/ai-factory/model.toml` 与 `agent.toml`；每位使用者调用自己的 API。共享上下文不是共享密钥。
 2. 创造模式在“AI-Factory 智能存储”页取得元件与终端，或使用新增配方。元件配方使用对应 AE2 存储组件、物品元件外壳、逻辑处理器；终端使用 AE2 终端、计算处理器与铁锭。
 3. 把元件装入 ME 驱动器，终端连入同一有电且有通道的 ME 网络。右键终端选择元件，新建命名会话或打开已有会话。
-4. 对话中请求库存，使用返回 Key 查询 NBT、发起指定数量的合成计划；核对真实库存、缺料和计划所需 bytes。
+4. 请求库存，使用返回 Key 查询 NBT、预览计划，再明确请求合成指定数量；检查 CPU 中的真实任务与最终网络产物。验证未编码物品、缺料、CPU 忙碌/容量不足均不误报提交成功。通过样板 `view` 读取容器，以 `expected` 编码并投放四种模式；核对消耗空白样板、已有样板复用、配方输出及新样板被 AE2 识别。槽位变更、无空白样板、隐藏容器、权限拒绝及量子桥两端同坐标不得误写。
 5. 两名玩家同时打开同一会话，应只有一名成功。第一名关闭界面但仍有 ReAct 时，第二名仍被拒绝；前者 HUD 应持续显示。保存完成且终端关闭后第二名才能接手并看到新历史。
 6. 检查同 UUID/同哈希时不传正文，不同哈希时同步；检查离开世界/保存重启、元件移至另一驱动器后仍能恢复。
 7. 检查八会话上限、整盘容量超限不改旧数据、清空后保存、同名不同 NBT 变体、可合成但零库存的 Key、NBT 分页与截断。
@@ -144,7 +163,7 @@ NBT 路径例如 `tag.display.Name`、`tag.Items[3].id`；支持转义成员名�
 
 这些是实际游戏验收步骤，不以构建、单元测试或独立 JVM 烟测代替。按项目约束，本次没有启动 Minecraft 客户端、独立服务端或 GameTestServer。
 
-## 7. 本次已执行验证
+## 7. 基础版本已执行验证
 
 正式构建命令：
 
@@ -166,3 +185,21 @@ NBT 路径例如 `tag.display.Name`、`tag.Items[3].id`；支持转义成员名�
 - Jar-in-Jar 仅含 JTokkit 1.1.0，包含词表与 MIT 许可；没有 AE2/GuideME/Kotlin 副本、真实密钥配置或烟测类。
 
 无 AE2 的独立 JVM 链接检查不是 Forge 引导证明；压缩 NBT/HTTP/锁烟测也不是已进入世界的证明。实际驱动器插入、接线、电力/通道、终端显示、HUD、多人同步、独立服务端与发布环境加载仍按第 6 节进行游戏内验收。
+
+## 8. 合成请求与样板管理增量验证
+
+- `build ae2ToolSmoke -I .gradle/ae2-tool-smoke/smoke.gradle --console=plain` 成功，执行发布打包及两种重混淆。20 个测试类共 **214 项本地测试通过**，失败、错误和跳过均为 0；新增 10 项样板参数回归覆盖模式互斥、主输出、槽位/数量上界、期望内容、非法 Key 和维度标识。
+- 独立 JVM 实际运行 `Ae2Tools` / `ToolManager`：五项 ME 工具存在，`give_item` / `execute_command` 返回 `unknown_tool`；合成零数量/整数溢出、未知样板动作以及安装缺少维度均在到达网关前拒绝。样板参数烟测保持下界/最高输入槽 80、1000 mB 流体量和 `minecraft:the_nether` 容器维度。
+- 发布 JAR 包含合成请求、样板管理工具及服务端执行/校验类；Mod 字节码为 Java 17，`mods.toml` 变量已展开，Jar-in-Jar 仍仅含 JTokkit。已编译的共享助手类不再引用给予、命令工具或 `ClientGameActions`，不含烟测类。临时烟测源、任务与类文件已移除。
+- 额外尝试在独立 JVM 引导 Minecraft 并调用 AE2 物品/加工样板 API，失败在 Forge `NetworkEvent` 监听器初始化：该 JVM 缺少正常 Forge 启动时的事件类转换（`NoSuchMethodException: NetworkEvent.<init>()`）。这不是游戏加载或样板 API 验收通过的证据，也未为绕过它修改生产逻辑。
+
+未启动客户端、独立服务端或 GameTestServer；真实 CPU 合成、四种样板投放、权限、跨维度容器和界面加载仍按第 6 节进行游戏内验收。纯工具烟测和参数测试不代替这些检查。
+
+## 9. AE2 package 重构验证
+
+- 将内容定义、存储适配、服务端执行、共用工具契约与客户端工具分包；测试同步迁至 `addon.ae2.tool` 和 `addon.ae2.client.tool`。本次只调整文件位置、package 和 import，不改变可见性、注册 ID、NBT、协议或运行逻辑，也不保留旧包别名。
+- 执行 `build ae2PackageSmoke ae2PackageArchiveCheck -I .gradle/ae2-package-smoke/smoke.gradle --console=plain` 成功，包含 `reobfJar` 与 `reobfJarJar`；全部 **214 项本地测试通过**，其中 AE2 测试 38 项，失败和跳过均为 0。
+- 独立 JVM 运行迁移后的 `Ae2Tools` / `ToolManager`，确认五项工具注册，非法参数在到达游戏网关前拒绝；实际运行规范化 NBT 指纹、共享 Key/路径校验及 NBT 导航/渲染。
+- 检查发布包 `build/libs/ai_factory-1.0.0.jar` 中 26 个迁移类、入口及文件级辅助类：新 package 路径齐全，旧 AE2 根包内容类和旧 `addon.ae2.client` 工具类无残留；`mods.toml` 已展开，客户端资源与服务端数据存在，未包含烟测类。临时烟测源、任务与类文件已移除。
+- 未启动客户端、独立服务端或 GameTestServer；构建和独立 JVM 工具烟测不代表游戏内注册、加载及世界交互验收通过。
+

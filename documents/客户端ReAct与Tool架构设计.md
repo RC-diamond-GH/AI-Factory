@@ -2,7 +2,7 @@
 
 ## 1. 范围与依赖约束
 
-核心实现包含客户端流式 ReAct、可注册 Tool、`give_item` / `execute_command`、服务端游戏机制、聊天界面与 TOML 配置。可选 AE2 集成另有智能元件、联网终端与三项 ME Tool；共享上下文与锁放在核心，JTokkit 提供本地存储 Token 计数。详见 [AE2 智能存储交付说明](./AE2智能存储拓展交付说明.md)。
+核心实现包含客户端流式 ReAct、可注册 Tool、普通 G 键聊天的 `give_item` / `execute_command`、服务端游戏机制、聊天界面与 TOML 配置。可选 AE2 集成另有智能元件、联网终端与五项 ME Tool；AE2 助手不注册给予物品或执行命令的工具，旧会话恢复时也更新为当前 ME Tool Schema。共享上下文与锁放在核心，JTokkit 提供本地存储 Token 计数。详见 [AE2 智能存储交付说明](./AE2智能存储拓展交付说明.md)。
 
 - 数据模式和抽象能力定义在 `com.rcdiamond.aifactory.client.llm`；Agent、Tool 和游戏网络消息使用这些模式，不依赖 OpenAI wire format。
 - LLM API 请求、Agent 决策、Tool 定义与参数策略全部运行在客户端。
@@ -34,7 +34,7 @@
 | `shared.*` | 共享纯规则 / 服务端 | 上下文编码、哈希、容量、世界存档、独占锁与服务端会话校验；无 AE2 类型 |
 | `network.SharedSessionNetwork` | 两端 | 共享会话的有界分片 RPC 与终端打开事件；独立协议版本 `"1"` |
 | `client.shared.*` | 客户端 | UUID / 哈希缓存同步、共享会话生命周期、选择界面、后台 HUD；复用 `ReactAgent` |
-| `addon.ae2.*` | 可选集成 | 元件与终端注册、AE2 网格授权适配、库存 / NBT 详情 / 异步合成计划 |
+| `addon.ae2.*` | 可选集成 | 元件与终端注册、网格授权、库存 / NBT 详情 / 异步合成计划与请求 / 样板容器视图、编码与投放 |
 
 ## 3. 决策与执行路径
 
