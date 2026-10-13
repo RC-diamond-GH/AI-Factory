@@ -31,7 +31,35 @@ interface AgentChatSession {
     fun reload()
     fun cancelTurn()
     fun clear()
+
+    /**
+     * True when closing the chat screen must cancel the running turn, false when the turn has to keep
+     * running while nothing is shown (a shared server session). Defaults to the local chat behaviour so
+     * existing session implementations stay unchanged.
+     */
+    val cancelTurnOnClose: Boolean get() = true
+
+    /**
+     * Called once when a chat screen for this session becomes visible. A session that owns server state
+     * uses this to announce that its screen is open; the local chat ignores it.
+     */
+    fun onScreenOpened() {}
+
+    /**
+     * Called when a chat screen for this session stops being shown, whether the player closed the screen
+     * or another screen replaced it. Always runs, also for sessions that cancel on close.
+     */
+    fun onScreenClosed() {}
 }
+
+/** One shared session advertised by the server, without its conversation. */
+data class SharedSessionInfo(val id: UUID, val cellId: UUID, val title: String, val hash: String, val tokens: Long)
+
+/** One intelligent storage cell mounted inside a terminal's grid, as the server mounts it. */
+data class SharedCellInfo(val id: UUID, val bytes: Long, val usedBytes: Long, val sessionCount: Int)
+
+/** Reply of the shared `list` operation: the sessions stored on the terminal's cells and those cells. */
+data class SharedSessionList(val sessions: List<SharedSessionInfo>, val cells: List<SharedCellInfo>)
 
 /** Game-action messages contain no provider-specific types or credentials. */
 data class GiveItemRequest(val requestId: UUID, val itemId: String, val count: Int)

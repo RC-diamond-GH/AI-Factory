@@ -2,14 +2,20 @@ package com.rcdiamond.aifactory.client
 
 import com.rcdiamond.aifactory.AIFactory
 import com.rcdiamond.aifactory.client.game.ClientGameActions
+import com.rcdiamond.aifactory.client.shared.ClientSharedSessionRuntime
+import com.rcdiamond.aifactory.client.shared.SharedSessionHud
 import com.rcdiamond.aifactory.client.ui.AgentChatScreen
 import com.rcdiamond.aifactory.network.ExecuteCommandResponseEvent
 import com.rcdiamond.aifactory.network.GiveItemResponseEvent
+import com.rcdiamond.aifactory.network.SharedSessionResponseEvent
+import com.rcdiamond.aifactory.network.SharedTerminalOpenEvent
 import net.minecraft.client.KeyMapping
 import net.minecraft.client.Minecraft
 import net.minecraftforge.api.distmarker.Dist
 import net.minecraftforge.client.event.ClientPlayerNetworkEvent
+import net.minecraftforge.client.event.RegisterGuiOverlaysEvent
 import net.minecraftforge.client.event.RegisterKeyMappingsEvent
+import net.minecraftforge.client.gui.overlay.VanillaGuiOverlay
 import net.minecraftforge.event.TickEvent
 import net.minecraftforge.eventbus.api.SubscribeEvent
 import net.minecraftforge.fml.common.Mod
@@ -22,6 +28,12 @@ object ClientModEvents {
     @SubscribeEvent
     fun registerKeys(event: RegisterKeyMappingsEvent) {
         event.register(openChat)
+    }
+
+    /** Background indicator for a shared session whose chat screen is not showing. */
+    @SubscribeEvent
+    fun registerOverlays(event: RegisterGuiOverlaysEvent) {
+        event.registerAbove(VanillaGuiOverlay.CHAT_PANEL.id(), "shared_session_hud", SharedSessionHud)
     }
 }
 
@@ -47,7 +59,18 @@ object ClientGameEvents {
     }
 
     @SubscribeEvent
+    fun sharedSessionResponse(event: SharedSessionResponseEvent) {
+        ClientSharedSessionRuntime.onResponse(event.requestId, event.payload)
+    }
+
+    @SubscribeEvent
+    fun sharedTerminalOpen(event: SharedTerminalOpenEvent) {
+        ClientSharedSessionRuntime.onTerminalOpen(event.terminal)
+    }
+
+    @SubscribeEvent
     fun disconnect(event: ClientPlayerNetworkEvent.LoggingOut) {
         ClientAgentRuntime.disconnect()
+        ClientSharedSessionRuntime.disconnect()
     }
 }

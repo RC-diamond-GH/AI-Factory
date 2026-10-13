@@ -1,0 +1,9 @@
+{
+  "replace": false,
+  "values": [
+    {
+      "id": "ai_factory:me_intelligent_terminal",
+      "required": false
+    }
+  ]
+}

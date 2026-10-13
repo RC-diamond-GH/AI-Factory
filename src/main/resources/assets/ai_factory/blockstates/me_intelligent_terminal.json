@@ -1,0 +1,7 @@
+{
+  "variants": {
+    "": {
+      "model": "ai_factory:block/me_intelligent_terminal"
+    }
+  }
+}

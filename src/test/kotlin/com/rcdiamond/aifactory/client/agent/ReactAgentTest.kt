@@ -12,6 +12,8 @@ import com.rcdiamond.aifactory.client.llm.LLMContext
 import com.rcdiamond.aifactory.client.llm.LLMTransportError
 import com.rcdiamond.aifactory.client.llm.GenerateResponse
 import com.rcdiamond.aifactory.client.llm.ModelProvider
+import com.rcdiamond.aifactory.client.llm.GlobalPrompt
+import com.rcdiamond.aifactory.client.llm.ToolCall
 import com.rcdiamond.aifactory.client.tool.GiveItemTool
 import com.rcdiamond.aifactory.client.tool.ToolManager
 import kotlinx.coroutines.CancellationException
@@ -117,6 +119,36 @@ private fun assertHistoryValid(history: List<ChatMessage>) {
 }
 
 class ReactAgentTest {
+    @Test
+    fun `a restored conversation continues without replaying recorded tools`() = runBlocking {
+        val provider = ScriptedProvider(mutableListOf(answer(text("continued"), finished(FinishReason.Stop))))
+        val gateway = RecordingGateway()
+        val agent = agentWith(provider, gateway)
+        val stored = LLMContext(
+            systemPrompt = "Stored network prompt",
+            globalPrompt = listOf(GlobalPrompt("network.md", "Keep this context")),
+            tools = null,
+            messages = listOf(
+                ChatMessage.User("old question"),
+                ChatMessage.Assistant(toolCalls = listOf(
+                    ToolCall("old-call", "give_item", buildJsonObject { put("item_id", "minecraft:iron_ingot"); put("count", 1) }),
+                )),
+                ChatMessage.Tool("old-call", """{"success":true}"""),
+                ChatMessage.Assistant("old answer"),
+            ),
+        )
+        agent.importContext(stored)
+        assertEquals(stored, agent.exportContext())
+        assertEquals("continued", agent.respond("new question"))
+        assertTrue(gateway.calls.isEmpty(), "restoration must not replay past game actions")
+        assertEquals(stored.systemPrompt, provider.contexts.single().systemPrompt)
+        assertEquals(stored.globalPrompt, provider.contexts.single().globalPrompt)
+        assertEquals(
+            stored.messages + ChatMessage.User("new question") + ChatMessage.Assistant("continued"),
+            agent.exportContext().messages,
+        )
+    }
+
     @Test
     fun `final text is streamed in fragments on the caller thread and returned joined`() {
         val provider = ScriptedProvider(mutableListOf(answer(text("Hel"), text("lo"), finished(FinishReason.Stop))))
