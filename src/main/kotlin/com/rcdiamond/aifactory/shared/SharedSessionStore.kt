@@ -40,7 +40,7 @@ data class SharedSessionRecord(
  */
 class SharedSessionStore {
     private val sessions = LinkedHashMap<UUID, SharedSessionRecord>()
-    private class CellUsage(var sessions: Int = 0, var bytes: Long = 0)
+    private class CellUsage(var sessions: Int = 0, var bytes: Long = 0, var titles: List<String>? = null)
     private val usage = HashMap<UUID, CellUsage>()
     private var preservedDocument: ByteArray? = null
 
@@ -67,6 +67,18 @@ class SharedSessionStore {
     /** ME bytes already charged in [cellId]: the sum of the sessions' charges. */
     fun usedBytes(cellId: UUID): Long = usage[cellId]?.bytes ?: 0L
 
+    /** Titles in document order, cached until this cell changes so inventory synchronization does not allocate each tick. */
+    fun titles(cellId: UUID): List<String> {
+        val cellUsage = usage[cellId] ?: return emptyList()
+        cellUsage.titles?.let { return it }
+        val titles = ArrayList<String>(cellUsage.sessions)
+        for (record in sessions.values) {
+            if (record.cellId == cellId) titles.add(record.title)
+        }
+        cellUsage.titles = titles
+        return titles
+    }
+
     fun isEmpty(): Boolean = sessions.isEmpty()
 
     private fun put(record: SharedSessionRecord) {
@@ -75,11 +87,13 @@ class SharedSessionStore {
             usage.getValue(previous.cellId).apply {
                 sessions--
                 bytes -= previous.charge
+                if (previous.cellId != record.cellId || previous.title != record.title) titles = null
             }
         }
         usage.getOrPut(record.cellId) { CellUsage() }.apply {
             sessions++
             bytes += record.charge
+            if (previous == null || previous.cellId != record.cellId || previous.title != record.title) titles = null
         }
     }
 
@@ -96,10 +110,7 @@ class SharedSessionStore {
         context: JsonObject = SharedContextCodec.empty(),
     ): SharedSessionRecord {
         requireWritable()
-        if (title.isBlank()) throw IllegalArgumentException("A session title must not be blank")
-        if (title.length > SharedSessionLimits.MAX_TITLE_LENGTH) {
-            throw IllegalArgumentException("A session title must be at most ${SharedSessionLimits.MAX_TITLE_LENGTH} characters")
-        }
+        requireTitle(title)
         if (sessionCount(cellId) >= SharedSessionLimits.MAX_SESSIONS_PER_CELL) {
             throw IllegalArgumentException(
                 "This cell already holds the maximum of ${SharedSessionLimits.MAX_SESSIONS_PER_CELL} sessions",
@@ -109,6 +120,38 @@ class SharedSessionStore {
         val record = canonicalRecord(id, cellId, title, context)
         put(record)
         return record
+    }
+
+    /**
+     * Creates an empty session on the preferred mounted cell, or another mounted cell with room.
+     * Session slots and byte budgets remain per cell; existing sessions are never moved.
+     */
+    fun createInMountedCell(cells: List<SharedCell>, preferredCellId: UUID, title: String): SharedSessionRecord {
+        requireWritable()
+        requireTitle(title)
+        val preferred = cells.firstOrNull { it.id == preferredCellId }
+            ?: throw IllegalArgumentException("That cell is not installed in this terminal")
+        val context = SharedContextCodec.empty()
+        val tokens = SharedContextCodec.tokens(context)
+        val charge = SharedSessionLimits.chargeFor(tokens)
+        fun hasRoom(cell: SharedCell): Boolean =
+            sessionCount(cell.id) < SharedSessionLimits.MAX_SESSIONS_PER_CELL &&
+                usedBytes(cell.id) + charge <= cell.bytes
+
+        val cell = if (hasRoom(preferred)) preferred else cells.firstOrNull { hasRoom(it) }
+            ?: throw IllegalArgumentException("No installed intelligent cell has room for another session")
+        val id = UUID.randomUUID()
+        if (sessions.containsKey(id)) throw IllegalArgumentException("Session $id already exists")
+        val record = SharedSessionRecord(id, cell.id, title, context, SharedContextCodec.hash(context), tokens)
+        put(record)
+        return record
+    }
+
+    private fun requireTitle(title: String) {
+        if (title.isBlank()) throw IllegalArgumentException("A session title must not be blank")
+        if (title.length > SharedSessionLimits.MAX_TITLE_LENGTH) {
+            throw IllegalArgumentException("A session title must be at most ${SharedSessionLimits.MAX_TITLE_LENGTH} characters")
+        }
     }
 
     /**

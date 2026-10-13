@@ -65,8 +65,9 @@ object SharedSessionMechanism {
      *
      * - `list` `{terminal}` → `{ok,sessions:[{id,cellId,title,hash,tokens}],cells:[{id,bytes,usedBytes,sessionCount}]}`,
      *   restricted to the cells the backend reports as installed in that terminal.
-     * - `create` `{terminal,cellId,title}` → `{ok,id}`. The cell must be installed; the cell holds at most
-     *   [SharedSessionLimits.MAX_SESSIONS_PER_CELL] sessions. The client then lists or opens the new session.
+     * - `create` `{terminal,cellId,title}` → `{ok,id,cellId}`. Prefers the requested installed cell, then
+     *   another installed cell with room. Each cell holds at most [SharedSessionLimits.MAX_SESSIONS_PER_CELL]
+     *   sessions within its byte budget. The response names the actual cell used.
      * - `open` `{terminal,id,hash}` → `{ok,id,hash,tokens}` plus `context` **only** when the client's `hash`
      *   differs from the server's. Acquires the exclusive lease atomically; a player may reopen the session
      *   they already own, anything else is a conflict. The acquired state is `screenOpen = true, running = false`.
@@ -149,12 +150,13 @@ object SharedSessionMechanism {
         val terminal = locator(payload)
         val cellId = payload.requireUuid("cellId")
         val title = payload.requireString("title")
-        val cell = backend.cells(player, terminal, false).firstOrNull { it.id == cellId }
-            ?: throw IllegalArgumentException("That cell is not installed in this terminal")
-        data.store.requireRoom(cellId, cell.bytes, null, SharedContextCodec.tokens(SharedContextCodec.empty()))
-        val record = data.store.create(cellId, title)
+        val cells = backend.cells(player, terminal, false)
+        val record = data.store.createInMountedCell(cells, cellId, title)
         data.markChanged()
-        reply(ok { put("id", record.id.toString()) })
+        reply(ok {
+            put("id", record.id.toString())
+            put("cellId", record.cellId.toString())
+        })
     }
 
     private fun open(

@@ -5,12 +5,12 @@ import java.util.UUID
 import net.minecraft.world.item.ItemStack
 
 /**
- * The cell *reference*: the only thing an intelligent cell keeps inside its own `ItemStack`.
+ * The cell reference links an intelligent cell's `ItemStack` to the world-save sessions.
  *
- * The conversation data itself lives in the world save (the core shared store); the stack carries nothing
- * but the id that links it to those sessions. That keeps a cell tiny, lets a drive be moved without copying
- * a conversation, and means a duplicated stack would refer to the same sessions instead of cloning them -
- * which is why [MEIntelligentCellInventory.canFitInsideCell] refuses to store a cell inside another cell.
+ * The conversation data itself lives in the core shared store. The stack carries the id and a display-only
+ * tooltip summary of titles and usage, never context bodies or authoritative capacity bookkeeping.
+ * A duplicated stack still refers to the same sessions instead of cloning them, which is why
+ * [MEIntelligentCellInventory.canFitInsideCell] refuses to store a cell inside another cell.
  *
  * An id is assigned lazily the first time a mounted cell is discovered through a terminal, which is exactly
  * when [assign] is called: it writes the id through the drive's own inventory, so AE2 re-reads the cell,

@@ -16,9 +16,9 @@ import net.minecraft.network.chat.Component
  * Session picker for one validated ME terminal, opened by the server's terminal packet.
  *
  * It only ever shows what the `list` reply for that terminal contains: the sessions stored on its cells and
- * the intelligent cells themselves. Creating a session names one of those cells and a title; opening one hands
- * the session to [ClientSharedSessionRuntime], which owns the lock, the conversation and the chat screen from
- * then on. Nothing is guessed locally, so a session the server did not return cannot be selected.
+ * the intelligent cells themselves. Creating a session prefers the selected cell, then another installed
+ * cell with room; opening one hands the session to [ClientSharedSessionRuntime], which owns the lock,
+ * conversation and chat screen. Only the server's reply determines the session's actual cell.
  */
 class SharedSessionSelectionScreen(private val terminal: JsonObject) :
     Screen(Component.translatable("ai_factory.shared.title")) {

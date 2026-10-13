@@ -182,7 +182,7 @@ object ClientSharedSessionRuntime : AgentChatSession {
         }
     }
 
-    /** Creates a session in [cellId], opens it, and reports it; the callback runs on the client thread. */
+    /** Creates on [cellId] or another mounted cell with room, then opens it on the client thread. */
     fun create(terminal: JsonObject, cellId: UUID, title: String, onResult: (SharedSessionInfo?, String?) -> Unit) {
         val generation = epoch
         val requested = title.trim().ifEmpty { text("ai_factory.shared.untitled") }
@@ -203,7 +203,9 @@ object ClientSharedSessionRuntime : AgentChatSession {
                 )
                 val id = response.stringField("id")?.let(::parseUuid)
                     ?: throw SharedSessionException(text("ai_factory.shared.malformed_reply"))
-                val info = SharedSessionInfo(id, cellId, requested, "", 0L)
+                val actualCellId = response.stringField("cellId")?.let(::parseUuid)
+                    ?: throw SharedSessionException(text("ai_factory.shared.malformed_reply"))
+                val info = SharedSessionInfo(id, actualCellId, requested, "", 0L)
                 created = info
                 commands.withLock { resolveOpen(terminal, info) }
             } catch (_: CancellationException) {
