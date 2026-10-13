@@ -1,0 +1,23 @@
+{
+  "key.ai_factory.agent_chat": "打开 AI 助手聊天",
+  "key.categories.ai_factory": "AI-Factory",
+  "ai_factory.chat.title": "AI-Factory 助手",
+  "ai_factory.chat.input": "消息",
+  "ai_factory.chat.hint": "例如：给我 16 个钻石",
+  "ai_factory.chat.send": "发送",
+  "ai_factory.chat.cancel": "取消",
+  "ai_factory.chat.clear": "清空会话",
+  "ai_factory.chat.reload": "重载配置",
+  "ai_factory.chat.thinking": "正在等待助手回答…",
+  "ai_factory.chat.tool_running": "正在调用工具 %s…",
+  "ai_factory.chat.ready": "就绪。给予物品需要服务端授权；关闭界面会取消当前回合。",
+  "ai_factory.chat.cancelled": "已取消。已提交服务端的操作可能已经生效，不会自动撤销或重试。",
+  "ai_factory.chat.loading": "正在读取 config/ai-factory/ 配置…",
+  "ai_factory.chat.reloaded": "配置已加载，会话已重置。",
+  "ai_factory.chat.config_error": "配置加载失败，请检查 config/ai-factory/model.toml 和 agent.toml。",
+  "ai_factory.chat.request_error": "助手处理失败；本回合未自动重试。请检查配置和网络，或清空会话后重试。",
+  "ai_factory.chat.speaker.user": "你",
+  "ai_factory.chat.speaker.assistant": "助手",
+  "ai_factory.chat.speaker.tool": "工具",
+  "ai_factory.chat.speaker.system": "系统"
+}

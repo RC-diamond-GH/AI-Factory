@@ -31,3 +31,7 @@ forge*changelog.txt
 forge-*-mdk.zip
 temurin-jdk17.zip
 run-data/
+
+# Local API credentials
+.env
+**/config/ai-factory/model.toml
