@@ -31,7 +31,7 @@ KFF 4.12.0 提供 Kotlin 2.2.21 标准库与反射、协程及 JSON 序列化运
 - `java.toolchain` 和 `kotlin.jvmToolchain(17)` 控制 Mod 的编译目标。Gradle 使用 Java 21 不代表游戏或 Mod 可以使用 Java 21 API。
 - 本机 JDK 路径在 `gradle.properties` 和 `Set-DevEnv.ps1` 中；换机器时需要调整。
 - 代理需监听 `127.0.0.1:7897`。首次构建需下载 Kotlin 插件和 KFF，离线缓存不全时无法构建。
-- 构建产物为 `build/libs/ai_factory-1.0.0.jar`，`build` 会执行 Forge 的 `reobfJar`；不要把未重混淆的开发产物作为发布版本。
+- 构建产物为 `build/libs/ai_factory-<mod_version>.jar`，版本取自 `gradle.properties`；`build` 通过 `jarJar` 与 `reobfJarJar` 生成含 Tokenizer 的重混淆发布包。`-plain.jar` 缺少该依赖，不用于发布。
 
 生成或更新 IDE 启动配置：
 
@@ -159,3 +159,5 @@ Mixin 如有需要可保留 Java 实现，减少字节码签名和注解处理�
 - [Kotlin Gradle 配置与版本兼容性](https://kotlinlang.org/docs/gradle-configure-project.html)
 - [Forge 1.20.1 开发文档](https://docs.minecraftforge.net/en/1.20.1/)
 - [本项目单元测试实施方案](./documents/单元测试实施方案.md)
+- [玩家指南（英文）](./README.md) / [玩家指南（中文）](./README_cn.md)
+- [开发与踩坑记录](./documents/开发与踩坑记录.md)

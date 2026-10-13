@@ -6,7 +6,7 @@
 
 - AE2 为**可选依赖**。公共入口只在 `ModList.isLoaded("ae2")` 时通过类名反射加载 `Ae2Addon.initialize()`；无 AE2 时不初始化集成类、不注册拓展内容，原 G 键聊天保留。
 - 接入版本精确为 **Forge AE2 15.4.11**，Minecraft 1.20.1。使用拓展时客户端与服务端均需安装 AE2、GuideME 20.1.7、Kotlin for Forge 4.12.x 和 AI-Factory。
-- 发布包为 `build/libs/ai_factory-1.0.0.jar`，由 `jarJar` 和 `reobfJarJar` 生成。仅内嵌 JTokkit 1.1.0；`-plain.jar` 缺少 Tokenizer，不用于发布。AE2、GuideME、Kotlin 不内嵌。
+- 发布包为 `build/libs/ai_factory-<mod_version>.jar`，版本取自 `gradle.properties`，由 `jarJar` 和 `reobfJarJar` 生成。仅内嵌 JTokkit 1.1.0；`-plain.jar` 缺少 Tokenizer，不用于发布。AE2、GuideME、Kotlin 不内嵌。后文固定版本文件名属于历史验证记录。
 - JTokkit 的 MIT 许可随包置于 `META-INF/licenses/jtokkit-LICENSE.txt`；元件与智能屏幕纹理为本项目原创，Part 底座、状态灯与物品展示变换引用玩家安装的 AE2 资源，不复制或内嵌 AE2 美术资源。
 - 本次没有增加服务端 LLM API、服务端 Provider 或服务端 ReAct。
 

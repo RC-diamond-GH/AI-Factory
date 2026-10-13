@@ -1,5 +1,5 @@
 # Windows / GNU Make. Load JDK and proxy settings in the same process as Gradle.
-# Release artifact: build/libs/ai_factory-1.0.0.jar (build includes tests and reobfJar).
+# Release artifact: build/libs/ai_factory-<mod_version>.jar (build includes tests, jarJar and reobfJarJar).
 SHELL := cmd.exe
 .SHELLFLAGS := /C
 .DEFAULT_GOAL := build

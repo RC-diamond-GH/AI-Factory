@@ -1,0 +1,50 @@
+# Changelog
+
+## 0.0.1-beta.1 — prepared for GitHub pre-release
+
+First public beta of AI-Factory. This version has not been published yet.
+
+### Features
+
+- In-game chat panel with streaming LLM responses and a step-limited tool-using agent.
+- Permission-checked item grants and server commands executed as the requesting player.
+- Optional AE2 integration: five tiers of ME Intelligent Cells, an ME Intelligent Terminal, persistent conversations, automatic titles, and background-turn status.
+- ME tools for inventory inspection, item/NBT details, crafting previews, actual crafting requests, and pattern management.
+
+### Installation
+
+- Minecraft **1.20.1**, **Forge** (development target **47.4.10**), and **Java 17**.
+- **Kotlin for Forge 4.12.0** for Minecraft 1.20.1 is required and is not bundled.
+- Optional ME integration requires Forge **AE2 15.4.11** and **GuideME 20.1.7**.
+- Install the release attachment **`ai_factory-0.0.1-beta.1.jar`** in the game instance's `mods` directory. Do not install the `-plain.jar` build or GitHub's source archives.
+- Configure your own OpenAI-compatible Chat Completions endpoint, API key, and model in `config/ai-factory/model.toml`. Press **G** in a world to create the configuration, then edit it and click **Reload config**.
+- The networking design requires matching AI-Factory versions and dependencies on both sides; this is not a claim of tested multiplayer or dedicated-server support.
+
+Full setup instructions: [English](https://github.com/RC-diamond-GH/AI-Factory/blob/v0.0.1-beta.1/README.md) / [简体中文](https://github.com/RC-diamond-GH/AI-Factory/blob/v0.0.1-beta.1/README_cn.md). These versioned links become available when the release tag is pushed or created on GitHub.
+
+### Build and package checks
+
+- `clean build` succeeded; **265 local automated tests** passed with no failures, errors, or skipped tests.
+- The final JAR's Mod metadata and manifest identify **0.0.1-beta.1**; its Minecraft dependency is restricted to **1.20.1**.
+- Mod classes target Java 17. The package contains its resources, Apache-2.0 license, and JTokkit 1.1.0 with its MIT license; KFF, AE2, and GuideME are not bundled.
+- An accompanying `ai_factory-0.0.1-beta.1.jar.sha256` records the checksum of this build.
+- These checks inspect the built artifact; they do **not** validate loading it in Minecraft, multiplayer, or a dedicated server.
+
+### Testing status
+
+The maintainer has manually tested the **basic chat panel and AE2 integration features**. These are feature-level checks, not exhaustive verification of every tool or environment.
+
+**Not manually tested:** multiplayer, dedicated-server startup/operation, and the full range of edge cases, including concurrency, disconnects, capacity limits, and damaged saves.
+
+### Beta precautions
+
+- Back up your world and use a test save. Save compatibility across beta versions is not promised.
+- Commands and ME operations may change the world or network. Cancellation does not undo completed actions.
+- API calls may incur charges. Conversation history and relevant tool results are sent to your configured provider.
+- API keys are stored in plain text locally. Do not share configuration files or unredacted logs/history.
+
+Bug reports and feedback are welcome at [GitHub Issues](https://github.com/RC-diamond-GH/AI-Factory/issues). Include versions, environment, reproduction steps, expected/actual behavior, and redacted logs.
+
+### License
+
+AI-Factory: [Apache-2.0](https://github.com/RC-diamond-GH/AI-Factory/blob/v0.0.1-beta.1/LICENSE). The release embeds JTokkit 1.1.0 under its [MIT license](https://github.com/RC-diamond-GH/AI-Factory/blob/v0.0.1-beta.1/src/main/resources/META-INF/licenses/jtokkit-LICENSE.txt). KFF, AE2, and GuideME are installed separately.
