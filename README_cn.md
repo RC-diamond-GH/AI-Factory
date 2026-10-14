@@ -18,11 +18,13 @@ AI-Factory 将基于 LLM 的助手带入 Minecraft：在游戏中对话、请求
 | Kotlin for Forge（KFF） | **必需**；使用适配 Minecraft 1.20.1 的 **4.12.0** |
 | Applied Energistics 2 | **可选**；联动面向 Forge 版 **15.4.11** |
 | GuideME | 使用 AE2 联动时安装 **20.1.7** |
+| Just Enough Items（JEI） | **可选，仅客户端**；Forge 1.20.1 的 **15.x 且至少 15.62.0**；开发目标 **15.62.0.219** |
 
 1. 在启动器中创建 Minecraft 1.20.1 Forge 实例。
 2. 从 [GitHub Releases](https://github.com/RC-diamond-GH/AI-Factory/releases) 下载 AI-Factory 发布 JAR，放入该实例的 `mods` 目录。请选择 `.jar` 附件，不要使用 GitHub 自动生成的源码压缩包或带 `-plain.jar` 后缀的构建包。
 3. 安装适配 Minecraft 1.20.1 的 [Kotlin for Forge](https://github.com/thedarkcolour/KotlinForForge)。AI-Factory **没有内嵌 KFF**；即使不安装 AE2，也需要 KFF。
 4. 如需 ME 功能，再安装 [AE2](https://github.com/AppliedEnergistics/Applied-Energistics-2) 15.4.11 和 [GuideME](https://github.com/AppliedEnergistics/GuideME) 20.1.7，选择它们适配 Minecraft 1.20.1 的 Forge 构建。
+5. 如需配方查询，在客户端安装适配 Minecraft 1.20.1 的 Forge 版 [JEI](https://github.com/mezz/JustEnoughItems)。JEI 不内嵌；这些 Tool 不要求服务端安装 JEI。
 
 不安装 AE2 时，普通聊天助手仍可使用，但不会注册 ME 物品和终端功能。本项目是 Forge Mod，不是 Fabric 或 NeoForge 构建。
 
@@ -86,6 +88,22 @@ LLM 请求由客户端使用该玩家的配置发起，不需要配置服务端 
 | `ae2_request_crafting` | 根据已有样板提交真实 AE2 合成任务，产物留在网络中。 |
 | `ae2_manage_patterns` | 查看样板容器；编码并安装受支持的工作台、加工、切石及锻造样板。 |
 
+### 配方查询——可选 JEI 联动
+
+客户端安装 JEI 后，普通助手和 ME 助手都会获得以下只读工具。未安装 JEI 时，两项工具均不注册，其余非 JEI 功能保持可用。
+
+| JEI 工具 | 能力 |
+| --- | --- |
+| `jei_find_ingredients` | 按本地化名称或注册 ID 搜索可见的物品、流体和自定义材料类型，分页返回材料引用。 |
+| `jei_query_recipes` | 查询材料的制作配方、作为原料或催化剂的用途，可限定 JEI 分类；返回展示槽位及分类的工作台／机器。 |
+
+可以尝试问“用 JEI 查一下活塞怎么制作”或“铁锭参与哪些 JEI 配方？”。模型必须支持并实际调用工具；普通文字回答本身不证明发生了查询。
+
+材料 `key` 区分 JEI 定义的子类型，不是每个 NBT 字段的完整指纹。JEI 重载或有界引用缓存淘汰条目后，旧引用会返回 `unknown_key`，需要重新搜索。直接使用物品／流体 ID 选择默认堆叠。runtime 暂时不可用时返回 `jei_not_ready`，不删除 Agent 已注册的工具。
+
+结果属于 JEI **展示数据**，不是可执行配方，也不证明玩家或 ME 网络能合成。轮换候选可能相互关联；仅用于索引、不展示的材料不在槽位视图中。工具不提取机器耗能、耗时、概率或执行条件；布局缺失／失败、隐藏候选和截断都会明确标记。
+
+
 ## 实测状态与限制
 
 **维护者已完成实测：**
@@ -97,6 +115,7 @@ LLM 请求由客户端使用该玩家的配置发起，不需要配置服务端 
 
 **尚未实测：**
 
+- 游戏内的 JEI 查询，包括插件发现、第三方配方分类和 runtime 重载。
 - 多人游戏，包括共享会话的并发访问。
 - 独立服务端启动与运行。
 - 各类边界情况：大规模历史、容量限制、断线、超时、取消竞态、损坏存档，以及与其他 Mod 的交互。
@@ -116,4 +135,4 @@ LLM 请求由客户端使用该玩家的配置发起，不需要配置服务端 
 
 构建环境、打包注意事项、Provider 契约及历史验证记录已整理到[开发与踩坑记录](documents/开发与踩坑记录.md)。实现细节另见 [AE2 智能存储拓展交付说明](documents/AE2智能存储拓展交付说明.md)和[客户端 ReAct 与 Tool 架构设计](documents/客户端ReAct与Tool架构设计.md)。
 
-AI-Factory 使用 [Apache-2.0](LICENSE) 许可证。发布 JAR 内嵌的 JTokkit 使用 [MIT 许可证](src/main/resources/META-INF/licenses/jtokkit-LICENSE.txt)；Kotlin for Forge、AE2 和 GuideME 需另行安装。
+AI-Factory 使用 [Apache-2.0](LICENSE) 许可证。发布 JAR 内嵌的 JTokkit 使用 [MIT 许可证](src/main/resources/META-INF/licenses/jtokkit-LICENSE.txt)；Kotlin for Forge、AE2、GuideME 和 JEI 需另行安装。

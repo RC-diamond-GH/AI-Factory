@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased — optional JEI recipe queries
+
+- Add `jei_find_ingredients` and `jei_query_recipes` to both regular and ME agents only when JEI is installed on the client.
+- Integrate through a public no-argument `@JeiPlugin`; isolate JEI API types from the Tool/gateway contracts and Agent composition roots.
+- Support localized ingredient search, item/fluid IDs and custom-type search keys, production/input/catalyst queries, category filtering and bounded pagination.
+- Invalidate runtime-scoped ingredient keys across reloads, reject newly hidden ingredients, preserve rotation indices and explicitly report incomplete/truncated display data.
+- Add English/Chinese tool summaries. Recipe display data is not crafting authorization; machine energy, duration, probability and execution conditions are not extracted.
+- Target JEI **15.62.0.219**; optional client dependency range **[15.62.0,16)**. JEI and MezzConfig are not bundled in AI-Factory.
+- Verification: `build` and reobfuscated packaging succeeded; **274** local tests passed (including **9** JEI regressions), with no failures, errors or skips. Offline public-API fixtures exercised the production ToolManager/gateway/backend and missing-JEI class linkage; package checks confirmed Java 17, the plugin annotation, optional client metadata and translation-key parity.
+- No Minecraft client/server or paid LLM API was started/called. Game loading, actual chat rendering and third-party JEI recipes remain unverified.
+
 ## 0.0.1-beta.1 — prepared for GitHub pre-release
 
 First public beta of AI-Factory. This version has not been published yet.

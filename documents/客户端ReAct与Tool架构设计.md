@@ -2,7 +2,7 @@
 
 ## 1. 范围与依赖约束
 
-核心实现包含客户端流式 ReAct、可注册 Tool、普通 G 键聊天的 `give_item` / `execute_command`、服务端游戏机制、聊天界面与 TOML 配置。可选 AE2 集成另有智能元件、联网终端与五项 ME Tool；AE2 助手不注册给予物品或执行命令的工具，旧会话恢复时也更新为当前 ME Tool Schema。共享上下文与锁放在核心，JTokkit 提供本地存储 Token 计数。详见 [AE2 智能存储交付说明](./AE2智能存储拓展交付说明.md)。
+核心实现包含客户端流式 ReAct、可注册 Tool、普通 G 键聊天的 `give_item` / `execute_command`、服务端游戏机制、聊天界面与 TOML 配置。可选 AE2 集成另有智能元件、联网终端与五项 ME Tool；AE2 助手不注册给予物品或执行命令的工具。客户端安装 JEI 时，两种 Agent 都注册材料搜索和配方查询工具；共享会话恢复时使用当前注册的 Tool Schema。共享上下文与锁放在核心，JTokkit 提供本地存储 Token 计数。详见 [AE2 智能存储交付说明](./AE2智能存储拓展交付说明.md)。
 
 - 数据模式和抽象能力定义在 `com.rcdiamond.aifactory.client.llm`；Agent、Tool 和游戏网络消息使用这些模式，不依赖 OpenAI wire format。
 - LLM API 请求、Agent 决策、Tool 定义与参数策略全部运行在客户端。
@@ -35,6 +35,8 @@
 | `network.SharedSessionNetwork` | 两端 | 共享会话的有界分片 RPC 与终端打开事件；独立协议版本 `"3"` |
 | `client.shared.*` | 客户端 | UUID / 哈希缓存同步、共享会话生命周期、选择界面、后台 HUD；复用 `ReactAgent`，使用独立无工具请求生成会话标题 |
 | `addon.ae2.*` | 可选集成 | 元件与终端注册、网格授权、库存 / NBT 详情 / 异步合成计划与请求 / 样板容器视图、编码与投放 |
+| `addon.jei.client.tool.*` / `JeiQueryGateway` | 客户端，纯契约 | 材料搜索／配方查询 Schema、参数校验和可替换查询后端；无 JEI API 类型 |
+| `addon.jei.client.integration.*` | 可选 JEI 客户端集成 | JEI 插件发现、runtime 生命周期、公开 API 查询、有界材料引用及展示槽位转换 |
 
 ## 3. 决策与执行路径
 
@@ -109,6 +111,27 @@ Tool 返回包含 `item_id`、`count`、`success`、`message` 的 JSON 观察结
 
 支持原版和模组注册的服务端命令，不支持仅客户端注册的命令。只捕获本次同步执行通过 `CommandSource` 发送的系统反馈；聊天广播、延迟任务及其他通道的信息不保证出现在 Tool 结果中。超时、断线或取消不撤销已执行操作。
 
+
+### 4.5 可选 JEI 查询
+
+`ClientAgentRuntime.configure()` 和 `ClientSharedSessionRuntime.configureAgent()` 分别检查客户端 `ModList.isLoaded("jei")`，然后调用同一个 `JeiTools.register(...)`。未安装 JEI 时不创建工具实例、不发布 Schema；聊天屏幕不检测或导入具体 Tool。ME 助手仍不获得普通聊天的给予物品／执行命令能力。
+
+`AiFactoryJeiPlugin` 是有公开无参构造函数的普通 Kotlin `class`，由 JEI 的 `@JeiPlugin` 扫描器创建，不使用 KFF Mod 入口的 `object` 模式。它在 `onRuntimeAvailable` 安装新的 `JeiQueryBackend`，在 `onRuntimeUnavailable` 撤销对应实例。纯 `JeiQueryGateway` 在后端缺失时返回 `jei_not_ready`；工具定义不会随资源重载反复移除。JEI API 仅在 `integration` 包出现，不进入公共入口、服务端或 Agent 的字段／方法类型。
+
+- `jei_find_ingredients`：必填 `filter`，1–128 字符，裁剪外部空白，按名称／注册 ID 做忽略大小写的字面子串搜索，不支持 JEI 搜索框语法，也不修改搜索框。`page` 0–100；`page_size` 1–50，默认 20。
+- `jei_query_recipes`：`ingredient_key` 和 `ingredient_id` 恰好选一个。直接 ID 可带 `ingredient_type=item|fluid`，默认 item；无命名空间时按 minecraft 处理。`direction=recipes|uses|catalyst` 分别创建 OUTPUT／INPUT／CATALYST focus；可带 `category_id`。`page` 0–100；`page_size` 1–10，默认 5。
+- 示例参数：`{"ingredient_id":"minecraft:piston","direction":"recipes","page_size":5}`；搜索得到的 `key` 则通过 `{"ingredient_key":"返回的原始引用","direction":"uses"}` 查询。
+- 所有参数拒绝未知字段、错误类型、显式 null 和越界值；身份参数互斥，`ingredient_type` 不能与 key 同时提交。
+
+查询在客户端主线程同步执行：先用公开 API 按 focus 查分类及配方，分页并观察额外一条匹配，再为当前页构建布局。返回 `returned`／`has_more`，不为统计总数遍历完整配方库。材料可包含自定义 JEI 类型；通过 helper 的名称、ID、amount 和 UID 描述，不假定全部都是 ItemStack。物品单位 count，Forge 流体单位 millibuckets；未知数量／单位返回 null。
+
+引用由随机 runtime 标识和单调计数组成，使用 JEI UID 对象的 equals/hashCode 去重，不能通过 UID 的 toString 合并子类型。最多保留 4096 个近期引用；新 runtime 不复用旧引用，缓存淘汰后也不把旧 key 重新绑定到其他材料。每次通过 key 查询仍检查当前 recipe-context 可见性，防止 key 绕过动态隐藏。共享历史中的旧 key 不是持久标识，遇到 `unknown_key` 必须重新搜索。
+
+响应限制：搜索最多检查 100000 个材料；每配方最多 64 槽位、每槽位最多 64 候选、每配方最多序列化 256 个可见候选，分类催化剂最多 64 个，描述字符串最多 256 字符。命中限制会报告 `truncated` 及相应遗漏计数。隐藏／空白候选保留 null 占位，槽位索引不重新排列。布局缺失或失败使用 `display_extraction_complete=false` 和 `extraction`；催化剂失败单独报告 `catalysts_error`，不伪装成没有工作台。
+
+`display_extraction_complete` 只描述展示提取是否完成，不表示配方完整。`getAllIngredientsList` 忽略 focus，轮换候选可能存在跨槽位关联，不能自由笛卡尔组合；`addInvisibleIngredients` 索引材料不在布局视图中。此工具不提取网格位置、耗能、耗时、概率或机器条件，不产生可直接执行／编码的配方结构，也不替代服务端 AE2 合成计划。
+
+构建仅 compileOnly 引入 JEI common-api／forge-api，开发 localRuntime 使用完整 JEI。`mods.toml` 的 JEI 依赖为可选 CLIENT，范围 `[15.62.0,16)`；开发版本 15.62.0.219。发布 JAR 不内嵌 JEI 或 MezzConfig。
 
 ## 5. 服务端权限与网络边界
 
@@ -208,6 +231,9 @@ API 密钥以明文存储在客户端文件。不要提交或分享 `model.toml`
 命令 Tool 本地测试覆盖参数形状、原始文本边界、规范化与反馈聚合。独立命令 smoke 使用合成玩家 / 服务端上下文（没有启动服务端或世界），实际调用生产 Tool 注册器、`ExecuteCommandMechanism`、原版 `Commands` / Brigadier 和已启动的 Forge 事件总线，验证玩家身份 / 位置 / 朝向保留、结果 0 的成功、权限拒绝、语法错误反馈、输出截断、非法输入及 `CommandEvent` 取消。独立 JVM 仅为预热未经过 ModLauncher 注入默认构造器的事件监听表使用了临时辅助代码；不将此 smoke 视为实际加载器、联机或世界验收。临时文件验证后移除。
 
 发布 JAR 检查确认 Mod 类字节码目标为 Java 17，Forge 元数据已展开，中英文翻译键一致，不包含 `.env`、`model.toml` 或 `agent.toml`。公共入口、网络、服务端机制和共享模式的直接字节码引用检查没有发现客户端界面、Agent、Tool 或 Provider 引用；这是静态隔离检查，不是独立服务端启动证明。
+
+JEI 联动增加了 9 个参数／网关生命周期／摘要安全回归用例；全套 274 个本地测试通过。独立 JVM 使用明确的 JEI 公开接口 fixture，实际执行生产 `ToolManager → JeiQueryGateway → JeiQueryBackend`，验证自定义材料、分页、隐藏／空白候选索引、数量、布局失败、候选／槽位上限、动态隐藏、UID 对象同文不同身份、runtime 失效及新 runtime 已发出引用后旧 key 仍被拒绝。另一个无 JEI API 的 classpath 验证纯 Tool／网关与两处 Agent 签名可链接；发布包验证插件注解、Java 17、可选客户端依赖以及不内嵌 JEI。临时源码、编译产物和启动脚本已移除。这不是 JEI 真实索引、Forge 插件发现、游戏界面渲染或独立服务端加载的验收。
+
 
 按仓库约束没有启动 Minecraft 客户端或服务端，本次也没有调用付费外网 API。因此以下项目不是已通过的验收，须在游戏中执行：
 

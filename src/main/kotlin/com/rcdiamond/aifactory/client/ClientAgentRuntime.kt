@@ -1,5 +1,6 @@
 package com.rcdiamond.aifactory.client
 
+import com.rcdiamond.aifactory.addon.jei.client.tool.JeiTools
 import com.rcdiamond.aifactory.client.agent.ReactAgent
 import com.rcdiamond.aifactory.client.config.ClientConfigFiles
 import com.rcdiamond.aifactory.client.config.ClientConfigurationException
@@ -24,6 +25,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.minecraft.client.Minecraft
 import net.minecraft.network.chat.Component
+import net.minecraftforge.fml.ModList
 import net.minecraftforge.fml.loading.FMLPaths
 import java.time.Duration
 import kotlin.coroutines.CoroutineContext
@@ -116,6 +118,7 @@ object ClientAgentRuntime : AgentChatSession {
         val tools = ToolManager()
         tools.register(GiveItemTool(ClientGameActions))
         tools.register(ExecuteCommandTool(ClientGameActions))
+        if (ModList.get().isLoaded("jei")) JeiTools.register(tools)
         val provider = OpenAICompletion(
             config.model.baseUrl, config.model.apiKey, config.model.model,
             requestTimeout = Duration.ofSeconds(config.agent.requestTimeoutSeconds),

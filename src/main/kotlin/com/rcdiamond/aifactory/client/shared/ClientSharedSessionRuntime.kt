@@ -1,6 +1,7 @@
 package com.rcdiamond.aifactory.client.shared
 
 import com.rcdiamond.aifactory.addon.ae2.client.tool.Ae2Tools
+import com.rcdiamond.aifactory.addon.jei.client.tool.JeiTools
 import com.rcdiamond.aifactory.client.agent.ReactAgent
 import com.rcdiamond.aifactory.client.config.ClientConfigFiles
 import com.rcdiamond.aifactory.client.config.ClientConfigurationException
@@ -62,7 +63,7 @@ private const val REQUEST_TIMEOUT_MILLIS = 30_000L
  *
  * The conversation lives on the server, and this runtime is the only place that keeps the client's copy of
  * it in sync: it opens or creates the session the server named, reuses the per-world cache whenever the
- * server's hash still matches, runs the ordinary [ReactAgent] loop locally with only ME terminal tools,
+ * server's hash still matches, runs the ordinary [ReactAgent] loop locally with ME tools and optional JEI queries,
  * and saves the resulting context back before it reports that nothing is running any more.
  *
  * Lifetime rules, all expressed through the server's `state` operation:
@@ -742,7 +743,7 @@ object ClientSharedSessionRuntime : AgentChatSession {
     // ------------------------------------------------------------- composition
 
     /**
-     * Loads the client configuration and rebuilds provider, tools and agent with only ME terminal tools.
+     * Loads the client configuration and rebuilds the agent with ME tools and optional read-only JEI tools.
      * The local chat's item grants and arbitrary commands are intentionally unavailable to this assistant.
      */
     private suspend fun configureAgent(): ReactAgent {
@@ -754,6 +755,7 @@ object ClientSharedSessionRuntime : AgentChatSession {
             // Addon class only: Ae2Tools contains no AE2 API, so no AE2 type is linked from here.
             Ae2Tools.register(manager, ::sendTool)
         }
+        if (ModList.get().isLoaded("jei")) JeiTools.register(manager)
         val provider = OpenAICompletion(
             config.model.baseUrl, config.model.apiKey, config.model.model,
             requestTimeout = Duration.ofSeconds(config.agent.requestTimeoutSeconds),
