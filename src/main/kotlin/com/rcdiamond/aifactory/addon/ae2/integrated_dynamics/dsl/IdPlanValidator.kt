@@ -218,6 +218,9 @@ object IdPlanValidator {
                         error(IdDiagnosticCode.E_TYPE, "call node ${node.id} references an unknown argument", node = node.id)
                     } else {
                         validateCall(node, argumentTypes.filterNotNull(), ::error)
+                        invalidSliceBounds(plan, node)?.let { message ->
+                            error(IdDiagnosticCode.E_LITERAL_RANGE, message, node = node.id)
+                        }
                         val native = IdOperatorCatalog.resolveNative(node.operator)
                         if (native != null) {
                             for (index in native.finiteListArguments) {
@@ -660,6 +663,45 @@ object IdPlanValidator {
         }
     }
 
+    private fun invalidSliceBounds(plan: IdPlan, node: IdPlanNode.Call): String? {
+        val arguments = sliceArguments(plan, node) ?: return null
+        val from = integerLiteral(plan, arguments[1])
+        val to = integerLiteral(plan, arguments[2])
+        if (from != null && from < 0 || to != null && to <= 0 ||
+            from != null && to != null && from >= to
+        ) {
+            return "slice requires 0 <= from < to; found from=${from ?: "dynamic"}, to=${to ?: "dynamic"}"
+        }
+        return null
+    }
+
+    /** Recognizes a native slice invocation without evaluating values or opaque input functions. */
+    private fun sliceArguments(plan: IdPlan, node: IdPlanNode.Call): List<IdReference>? {
+        if (node.operator == IdOperatorCatalog.LIST_SLICE) {
+            return node.arguments.takeIf { it.size == 3 }
+        }
+        if (node.operator != IdOperatorCatalog.OPERATOR_APPLY || node.type !is IdDslType.ListType) return null
+        val arguments = ArrayList<IdReference>(3)
+        var current: IdPlanNode = node
+        while (current is IdPlanNode.Call && current.operator == IdOperatorCatalog.OPERATOR_APPLY) {
+            if (current.arguments.size != 2 || arguments.size == 3) return null
+            arguments += current.arguments[1]
+            val callee = current.arguments[0] as? IdReference.Node ?: return null
+            current = plan.nodes.getOrNull(callee.id) ?: return null
+        }
+        if (current !is IdPlanNode.Native || current.operator != IdOperatorCatalog.LIST_SLICE ||
+            arguments.size != 3
+        ) return null
+        arguments.reverse()
+        return arguments
+    }
+
+    private fun integerLiteral(plan: IdPlan, reference: IdReference): Int? {
+        val id = (reference as? IdReference.Node)?.id ?: return null
+        val value = plan.nodes.getOrNull(id) as? IdPlanNode.Value ?: return null
+        return if (value.type == IdDslTypes.INTEGER) IdDslWire.intElement(value.value) else null
+    }
+
     // ------------------------------------------------------------------ finiteness
 
     private fun references(node: IdPlanNode): List<IdReference> = when (node) {
@@ -671,7 +713,6 @@ object IdPlanValidator {
         private val plan: IdPlan,
         private val imports: Map<String, IdPlanImport>,
     ) {
-        private val values = HashMap<IdReference, IdFiniteness>()
         private val nativeFiniteness = HashMap<Int, IdFiniteness>()
 
         fun of(reference: IdReference): IdFiniteness = when (reference) {
@@ -707,13 +748,15 @@ object IdPlanValidator {
                     of(node.arguments.getOrNull(1) ?: return IdFiniteness.UNKNOWN),
                 )
 
-                IdOperatorCatalog.LIST_SLICE -> {
-                    val list = of(node.arguments.getOrNull(0) ?: return IdFiniteness.UNKNOWN)
+                IdOperatorCatalog.LIST_SLICE,
+                IdOperatorCatalog.OPERATOR_APPLY -> {
+                    val arguments = sliceArguments(plan, node) ?: return IdFiniteness.UNKNOWN
+                    val list = of(arguments[0])
                     if (list == IdFiniteness.FINITE) {
                         IdFiniteness.FINITE
                     } else {
-                        val bound = node.arguments.getOrNull(2)?.let { boundLiteral(it) }
-                        if (bound != null && bound >= 0) IdFiniteness.FINITE else IdFiniteness.UNKNOWN
+                        val bound = integerLiteral(plan, arguments[2])
+                        if (bound != null && bound > 0) IdFiniteness.FINITE else IdFiniteness.UNKNOWN
                     }
                 }
 
@@ -726,12 +769,6 @@ object IdPlanValidator {
             }
         }
 
-        private fun boundLiteral(reference: IdReference): Int? {
-            val id = (reference as? IdReference.Node)?.id ?: return null
-            val value = (plan.nodes.getOrNull(id) as? IdPlanNode.Value)?.value ?: return null
-            if (plan.nodes[id].type != IdDslTypes.INTEGER) return null
-            return IdDslWire.intElement(value)
-        }
 
         private fun combine(first: IdFiniteness, second: IdFiniteness): IdFiniteness = when {
             first == IdFiniteness.INFINITE || second == IdFiniteness.INFINITE -> IdFiniteness.INFINITE

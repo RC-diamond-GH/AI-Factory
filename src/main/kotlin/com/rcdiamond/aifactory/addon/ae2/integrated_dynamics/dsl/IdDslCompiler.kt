@@ -489,7 +489,7 @@ object IdDslCompiler {
         IdDiagnosticCode.E_INPUT_BINDING ->
             "Bindings are keyed by exact input name and must match the server-resolved type and finiteness."
         IdDiagnosticCode.E_LITERAL_RANGE ->
-            "Check the Integer/Long range and use L only for Long literals."
+            "Keep Integer/Long literals in range (L for Long), fluid amounts positive, and slice bounds at 0 <= from < to."
         IdDiagnosticCode.E_LITERAL_RESOURCE ->
             "Use an explicit lowercase namespace:path resource id."
         IdDiagnosticCode.E_LITERAL_NBT ->
