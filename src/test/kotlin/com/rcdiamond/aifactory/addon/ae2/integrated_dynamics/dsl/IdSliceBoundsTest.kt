@@ -16,6 +16,7 @@ class IdSliceBoundsTest {
             val result = IdDslCompiler.compile(source, IdInputDescription(emptyList()))
             assertFalse(result.success)
             assertNull(result.plan)
+            assertEquals(1, result.diagnostics.count { it.code == IdDiagnosticCode.E_LITERAL_RANGE })
             val error = result.diagnostics.first { it.code == IdDiagnosticCode.E_LITERAL_RANGE }
             assertEquals(2, error.line)
             assertEquals("output result : [Integer] = ".length + 1, error.column)
@@ -47,10 +48,62 @@ class IdSliceBoundsTest {
             for ((from, to) in listOf(-1 to 5, 10 to 10)) {
                 val result = IdPlanValidator.validate(plan(from, to, curried), emptyMap())
                 assertFalse(result.ok)
-                assertTrue(result.diagnostics.any { it.code == IdDiagnosticCode.E_LITERAL_RANGE })
+                assertEquals(1, result.diagnostics.count { it.code == IdDiagnosticCode.E_LITERAL_RANGE })
             }
             val valid = IdPlanValidator.validate(plan(0, 1, curried), emptyMap())
             assertTrue(valid.ok, valid.diagnostics.joinToString())
+        }
+    }
+
+    @Test
+    fun `partial slice rejects an impossible start before an end is supplied`() {
+        for (from in listOf(-1, 0)) {
+            val source = "let naturals = iterate 0 increment; output f : Fn(Integer) -> [Integer] = slice naturals ($from);"
+            val result = IdDslCompiler.compile(source, IdInputDescription(emptyList()))
+            assertEquals(from >= 0, result.success, result.renderDiagnostics())
+            if (from < 0) {
+                assertNull(result.plan)
+                assertEquals(1, result.diagnostics.count { it.code == IdDiagnosticCode.E_LITERAL_RANGE })
+                val error = result.diagnostics.first { it.code == IdDiagnosticCode.E_LITERAL_RANGE }
+                assertEquals(source.indexOf("slice"), error.span.start)
+            }
+            val list = IdDslTypes.list(IdDslTypes.INTEGER)
+            val partialNodes = listOf(
+                IdPlanNode.Value(0, list, JsonArray(listOf(JsonPrimitive(0)))),
+                IdPlanNode.Value(1, IdDslTypes.INTEGER, JsonPrimitive(from)),
+                IdPlanNode.Native(2, IdDslTypes.fn(list, IdDslTypes.INTEGER, IdDslTypes.INTEGER, result = list),
+                    IdOperatorCatalog.LIST_SLICE),
+                IdPlanNode.Call(3, IdDslTypes.fn(IdDslTypes.INTEGER, IdDslTypes.INTEGER, result = list),
+                    IdOperatorCatalog.OPERATOR_APPLY, listOf(IdReference.Node(2), IdReference.Node(0))),
+                IdPlanNode.Call(4, IdDslTypes.fn(IdDslTypes.INTEGER, result = list),
+                    IdOperatorCatalog.OPERATOR_APPLY, listOf(IdReference.Node(3), IdReference.Node(1))),
+            )
+            val partial = IdPlan(
+                imports = emptyList(),
+                nodes = partialNodes,
+                outputs = listOf(IdPlanOutput("f", IdReference.Node(partialNodes.last().id), partialNodes.last().type)),
+            )
+            val validation = IdPlanValidator.validate(partial, emptyMap())
+            assertEquals(from >= 0, validation.ok, validation.diagnostics.joinToString())
+            if (from < 0) {
+                assertEquals(1, validation.diagnostics.count { it.code == IdDiagnosticCode.E_LITERAL_RANGE })
+            }
+        }
+        val noStart = IdDslCompiler.compile(
+            "let naturals = iterate 0 increment; output f : Fn(Integer, Integer) -> [Integer] = slice naturals;",
+            IdInputDescription(emptyList()),
+        )
+        assertTrue(noStart.success, noStart.renderDiagnostics())
+        val description = IdInputDescription(listOf(
+            IdInputPort("start", IdBinding.Variable(1), IdDslTypes.INTEGER, IdFiniteness.FINITE),
+        ))
+        for (from in listOf("start", "(0 - 1)")) {
+            val dynamic = IdDslCompiler.compile(
+                "input start : Integer; let naturals = iterate 0 increment; " +
+                    "output f : Fn(Integer) -> [Integer] = slice naturals $from;",
+                description,
+            )
+            assertTrue(dynamic.success, dynamic.renderDiagnostics())
         }
     }
 

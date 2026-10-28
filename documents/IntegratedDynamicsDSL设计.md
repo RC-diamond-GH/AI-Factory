@@ -475,7 +475,7 @@ output result : Boolean = sameItem emptyItem emptyItem;
 - DSL 编译器对**静态 infinite** 输入报 `E_INFINITE_CONSUMER`（`filter`/`reduce`/`itemCount`）。
 - `unknown` 在预览/计划校验中给 `W_UNKNOWN_FINITENESS` warning，plan 仍可生成；不把 unknown 伪造为 finite。运行期原生 `filter/reduce/itemCount` 可能抛错；若底层是 `map` 产生的 lazy infinite，原生的 `isInfinite()` 传播缺口可能导致长时间遍历，需在 UI/文档提示这一风险，不承诺服务端能证明终止。
 - `length` 对 infinite 不做拒绝：原生返回 `Integer.MAX_VALUE`；`isEmpty` 返回 false。不要虚构“length 抛错”。
-- `slice` 的已知 `from < 0`、`to <= 0`，或两个字面量 `from >= to` 在编译期报 `E_LITERAL_RANGE`；即使另一端动态，能静态证明不可能有效的边界仍拒绝。服务端同样检查直接 call 与可追溯到原生 slice 的 apply 链，不求值不透明输入函数。其他动态边界仍由运行期原生检查；get/getOr 索引不在此编译期限制中。
+- `slice` 的已知 `from < 0`、`to <= 0`，或两个字面量 `from >= to` 在编译期报 `E_LITERAL_RANGE`；即使另一端动态或尚未提供（部分应用），能静态证明不可能有效的边界仍拒绝。服务端同样检查直接 call 与可追溯到原生 slice 的 apply 链，不求值不透明输入函数。其他动态边界仍由运行期原生检查；get/getOr 索引不在此编译期限制中。
 - 不把原生 API 的 `getLength()==Integer.MAX_VALUE` 当作数学无穷；不重新定义原生 length/isEmpty。
 
 ### 8.3 状态与历史

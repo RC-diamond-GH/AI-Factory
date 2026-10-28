@@ -336,7 +336,7 @@ output firstTen : [Integer] = slice naturals 0 10;
 | `E_NATIVE_CONTRACT` | operator/aspect 不存在、用显示名、可变签名 apply/apply0 当 native、扩展无固定合同 | 用注册 ID/普通应用/内建 `call0`；固定高阶 scheme 可以特化，扩展需显式合同 |
 | `E_INFINITE_CONSUMER` / `W_UNKNOWN_FINITENESS` | filter/reduce/itemCount 消费已知 infinite / 无法证明有限的列表 | 先 slice 到有限边界；绑定有限列表；不要依赖 map/slice 后的原生 isInfinite |
 | `E_LITERAL_RESOURCE` | Item/Block/Fluid ID 不存在，或 `item "minecraft:air"`／`fluid "minecraft:empty"` 产生空原型 | 修正资源；空值用 `emptyItem`/`emptyFluid`，Block 的 air 是合法默认状态 |
-| `E_LITERAL_RANGE` | Integer/Long 越界、Fluid 数量≤0、静态可判无效的 slice 边界 | 修正数值／数量；slice 要求 `0 <= from < to`，get/getOr 索引保留原生运行期语义 |
+| `E_LITERAL_RANGE` | Integer/Long 越界、Fluid 数量≤0、静态可判无效的 slice 边界（包括部分应用的负起点） | 修正数值／数量；slice 要求 `0 <= from < to`，get/getOr 索引保留原生运行期语义 |
 | `E_LITERAL_NBT` | SNBT 语法错误、内部递归超限或尾随文本 | 修正 SNBT；递归预算 32，文本 8192 bytes 超限另报 `E_LIMIT` |
 | `E_LIMIT` | 源/节点/类型/输入输出/列表/字面量或外部 facade 证明工作超限 | 拆分程序或 bindings；简化列表/依赖图 |
 | `E_TARGET_CONTRACT` / `E_TYPE` / `E_NATIVE_CONTRACT` / `E_INPUT_BINDING` | plan schema/ref/type/operator/contract 或 preflight/create 失败 | 重新 `id_compile`；检查空白卡/背包；不要手改 plan |
