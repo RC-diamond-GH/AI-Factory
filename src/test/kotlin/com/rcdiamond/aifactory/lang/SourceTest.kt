@@ -26,7 +26,7 @@ class SourceTest {
         assertEquals(3, utf8ByteLength("abc", stopAfter = 3))
         assertEquals(4, utf8ByteLength("abcdef", stopAfter = 3))
         assertEquals(3, utf8ByteLength("abcdef", stopAfter = 2))
-        assertEquals(Int.MAX_VALUE, utf8ByteLength("abc", stopAfter = Int.MAX_VALUE))
+        assertEquals(3, utf8ByteLength("abc", stopAfter = Int.MAX_VALUE))
     }
 
     @Test
