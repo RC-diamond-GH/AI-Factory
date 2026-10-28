@@ -965,7 +965,6 @@ object StandardScalarRuntime {
         if (parameters.size < 2) {
             throw PurePrimitiveException("flip requires a function with at least two parameters")
         }
-        context.budget.checkListSize(parameters.size, context.span, "flip signature")
         val swapped = ArrayList(parameters)
         val first = swapped[0]
         swapped[0] = swapped[1]
