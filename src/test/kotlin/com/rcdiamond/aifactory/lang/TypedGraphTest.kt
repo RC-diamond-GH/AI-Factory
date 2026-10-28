@@ -19,14 +19,9 @@ class TypedGraphTest {
 
         assertEquals(listOf("value"), module.graph.inputs.map { it.name })
         assertEquals(3, module.graph.nodes.size)
-        assertEquals(
-            listOf(
-                IrOperation.Constant::class,
-                IrOperation.Input::class,
-                IrOperation.Arithmetic::class,
-            ),
-            module.graph.nodes.map { it.operation::class },
-        )
+        assertTrue(module.graph.nodes[0].operation is IrOperation.Constant)
+        assertTrue(module.graph.nodes[1].operation is IrOperation.Input)
+        assertTrue(module.graph.nodes[2].operation is IrOperation.Arithmetic)
         assertEquals(IrRef.Node(2), module.output("result")?.reference)
     }
 
