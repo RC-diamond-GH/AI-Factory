@@ -44,16 +44,17 @@ internal class EvaluationBudget(private val limits: EvaluationLimits) {
     private var depth: Int = 0
 
     fun chargeStep(span: SourceSpan) {
-        if (++steps > limits.maxSteps) {
+        if (steps >= limits.maxSteps) {
             limitFailure(span, "evaluation exceeded the step limit ${limits.maxSteps}")
         }
+        steps++
     }
 
     fun <T> withDepth(span: SourceSpan, block: () -> T): T {
-        if (++depth > limits.maxDepth) {
-            depth--
+        if (depth >= limits.maxDepth) {
             limitFailure(span, "evaluation exceeded the depth limit ${limits.maxDepth}")
         }
+        depth++
         try {
             return block()
         } finally {
