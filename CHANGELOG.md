@@ -5,7 +5,8 @@
 - Add the Minecraft/Forge-independent `lang` module: source-aware parser, monomorphic types, host-injected primitive contracts, bounded dependency checking and deterministic typed graphs.
 - Provide an extensible backend contract and a strict pure evaluator with higher-order lists, partial application and language-level conditional/Boolean short-circuiting.
 - Document syntax, extension APIs, semantics and limits in [共享类 Haskell 解释器](documents/共享类Haskell解释器.md).
-- Verification: actual CLI evaluation and failure diagnostics passed; `build` passed **373** tests including **85** language cases, with zero failures/errors/skips. No game or paid model API was started.
+- Review remediation bounds cumulative AST depth, name-diagnostic work, closure applications and list/string materialization; rejects function equality and defines JVM floating min/max behavior.
+- Verification: original and adversarial CLI cases passed after the fixes; `build` passed **393** tests including **105** language cases, with zero failures/errors/skips. No game or paid model API was started.
 
 ## Unreleased — CI and development loop
 
