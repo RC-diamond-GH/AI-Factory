@@ -29,7 +29,7 @@ import org.cyclops.integrateddynamics.core.evaluate.variable.ValueTypeList
 import org.cyclops.integrateddynamics.core.evaluate.variable.ValueTypeLong
 import org.cyclops.integrateddynamics.core.evaluate.variable.ValueTypeNbt
 import org.cyclops.integrateddynamics.core.evaluate.variable.ValueTypeString
-import java.io.StringReader
+import com.mojang.brigadier.StringReader
 import java.nio.charset.StandardCharsets
 
 /**

@@ -32,13 +32,13 @@ import org.cyclops.integrateddynamics.part.aspect.Aspects
  */
 internal object IdAspectContracts {
     data class Contract(
-        val aspect: IAspect,
+        val aspect: IAspect<*, *>,
         val part: IPartType<*, *>,
         val type: IdDslType,
         val finite: IdFiniteness,
     )
 
-    private val contracts: IdentityHashMap<IAspect, Contract> = IdentityHashMap<IAspect, Contract>().apply {
+    private val contracts: IdentityHashMap<IAspect<*, *>, Contract> = IdentityHashMap<IAspect<*, *>, Contract>().apply {
         add(Aspects.Read.Inventory.LIST_ITEMSTACKS, PartTypes.INVENTORY_READER, list(IdDslTypes.ITEM))
         add(Aspects.Read.Fluid.LIST_TANKFLUIDS, PartTypes.FLUID_READER, list(IdDslTypes.FLUID))
         add(Aspects.Read.Fluid.LIST_TANKCAPACITIES, PartTypes.FLUID_READER, list(IdDslTypes.INTEGER))
@@ -49,8 +49,8 @@ internal object IdAspectContracts {
         add(Aspects.Read.Machine.LIST_GETRECIPES, PartTypes.MACHINE_READER, list(IdDslTypes.RECIPE))
     }
 
-    private fun IdentityHashMap<IAspect, Contract>.add(
-        aspect: IAspect,
+    private fun IdentityHashMap<IAspect<*, *>, Contract>.add(
+        aspect: IAspect<*, *>,
         part: IPartType<*, *>,
         type: IdDslType,
     ) {

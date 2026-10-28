@@ -193,7 +193,7 @@ object IdOperatorCatalog {
         fixed(NUMBER_CAST_LONG, numericCast(LangTypes.LONG), "numeric cast to Long")
         fixed(NUMBER_CAST_INTEGER, numericCast(LangTypes.INTEGER), "numeric cast to Integer")
 
-        fixed(STRING_CONCAT, LangTypes.function(LangTypes.STRING, LangTypes.STRING, result = LangTypes.STRING), "string concatenation")
+        fixed(STRING_CONCAT, TypeScheme.monomorphic(LangTypes.function(LangTypes.STRING, LangTypes.STRING, result = LangTypes.STRING)), "string concatenation")
 
         fixed(LIST_LENGTH, listLength(), "list length")
         fixed(LIST_EMPTY, listEmpty(), "list emptiness")
@@ -221,9 +221,9 @@ object IdOperatorCatalog {
         fixed(GENERAL_CONSTANT, constant(), "constant (first argument)")
 
         fixed(ITEMSTACK_ITEMLISTCOUNT, itemCount(), "count same item and NBT in an item list", finite = setOf(0))
-        fixed(ITEMSTACK_MOD, LangTypes.function(item(), result = LangTypes.STRING), "item mod display name")
-        fixed(ITEMSTACK_STACKABLE, LangTypes.function(item(), result = LangTypes.BOOLEAN), "item is stackable")
-        fixed(ITEMSTACK_ENCHANTABLE, LangTypes.function(item(), result = LangTypes.BOOLEAN), "item is enchantable")
+        fixed(ITEMSTACK_MOD, TypeScheme.monomorphic(LangTypes.function(item(), result = LangTypes.STRING)), "item mod display name")
+        fixed(ITEMSTACK_STACKABLE, TypeScheme.monomorphic(LangTypes.function(item(), result = LangTypes.BOOLEAN)), "item is stackable")
+        fixed(ITEMSTACK_ENCHANTABLE, TypeScheme.monomorphic(LangTypes.function(item(), result = LangTypes.BOOLEAN)), "item is enchantable")
 
         return entries.associateByTo(LinkedHashMap()) { it.id }
     }
@@ -277,9 +277,9 @@ object IdOperatorCatalog {
         entries += IdPrimitive("iterate", IdPrimitiveLowering.Native(LIST_LAZYBUILT), lazyBuilt())
         entries += IdPrimitive("constant", IdPrimitiveLowering.Native(GENERAL_CONSTANT), constant())
         entries += IdPrimitive("itemCount", IdPrimitiveLowering.Native(ITEMSTACK_ITEMLISTCOUNT), itemCount())
-        entries += IdPrimitive("itemMod", IdPrimitiveLowering.Native(ITEMSTACK_MOD), LangTypes.function(item(), result = LangTypes.STRING))
-        entries += IdPrimitive("itemIsStackable", IdPrimitiveLowering.Native(ITEMSTACK_STACKABLE), LangTypes.function(item(), result = LangTypes.BOOLEAN))
-        entries += IdPrimitive("itemIsEnchantable", IdPrimitiveLowering.Native(ITEMSTACK_ENCHANTABLE), LangTypes.function(item(), result = LangTypes.BOOLEAN))
+        entries += IdPrimitive("itemMod", IdPrimitiveLowering.Native(ITEMSTACK_MOD), TypeScheme.monomorphic(LangTypes.function(item(), result = LangTypes.STRING)))
+        entries += IdPrimitive("itemIsStackable", IdPrimitiveLowering.Native(ITEMSTACK_STACKABLE), TypeScheme.monomorphic(LangTypes.function(item(), result = LangTypes.BOOLEAN)))
+        entries += IdPrimitive("itemIsEnchantable", IdPrimitiveLowering.Native(ITEMSTACK_ENCHANTABLE), TypeScheme.monomorphic(LangTypes.function(item(), result = LangTypes.BOOLEAN)))
 
         entries += IdPrimitive(
             "emptyItem",

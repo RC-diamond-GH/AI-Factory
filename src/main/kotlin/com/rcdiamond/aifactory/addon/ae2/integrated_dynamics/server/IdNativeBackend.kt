@@ -439,7 +439,7 @@ internal object IdNativeBackend {
 
     private data class PreparedAspect(
         val partId: Int,
-        val aspect: IAspect,
+        val aspect: IAspect<*, *>,
         val type: IdNativeTyped,
     )
 
