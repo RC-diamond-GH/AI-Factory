@@ -236,10 +236,10 @@ class RuntimeSafetyTest {
             output minNaNRight : Double = min 1.0 (0.0 / 0.0);
             output maxNaNLeft : Double = max (0.0 / 0.0) 1.0;
             output maxNaNRight : Double = max 1.0 (0.0 / 0.0);
-            output minZeroLeft : Double = min 0.0 -0.0;
-            output minZeroRight : Double = min -0.0 0.0;
-            output maxZeroLeft : Double = max 0.0 -0.0;
-            output maxZeroRight : Double = max -0.0 0.0;
+            output minZeroLeft : Double = min 0.0 (-0.0);
+            output minZeroRight : Double = min (-0.0) 0.0;
+            output maxZeroLeft : Double = max 0.0 (-0.0);
+            output maxZeroRight : Double = max (-0.0) 0.0;
             """.trimIndent(),
         )
 
