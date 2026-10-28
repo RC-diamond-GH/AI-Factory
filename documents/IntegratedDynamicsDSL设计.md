@@ -227,11 +227,11 @@ Fn(T1, T2, ...) -> R
 - `Fn` 参数/返回可以是另一个 `Fn`、列表或具体类型；`Fn() -> R` 表示零参数 Operator，用 `call0` 求值。
 - 裸 `Operator` 不是源类型；它丢失参数/返回信息，无法检查 Filter/Apply/Pipe。`Any`、`Number`、`Named`、`Nullable` 不是可写类型，只能作为原生声明的内部约束；不能用注解绕过检查。
 - 额外类型（如 Chemical）只有在服务端固定合同/类型表明确提供时才可出现；未知类型报错。
-- **嵌套类型的外部证明限制**：DSL 类型语法允许 `[[T]]`、`Fn(Fn(A)->B, ...)`，plan 中间节点也可携带。原生长久卡片只保存一层 `integrateddynamics:list`/`integrateddynamics:operator`：
-  - 常量列表卡若元素类型仍是 `integrateddynamics:list`，describe 必须继续检查列表元素（非空且所有元素的内层 element type 相同）才能得到 `[[T]]`；空的内层列表/不一致 → `E_INPUT_BINDING`。
-  - Operator value 卡的参数/返回若是 `integrateddynamics:operator`，其内层 Fn 签名不再在 facade metadata 中；只有源侧/计划侧的 call/combine 规则能恢复的类型才可证明，否则 `E_INPUT_BINDING`。
-  - Proxy/Delay/Aspect 同样只提供其声明的外层类型；不能靠源注解补内层。
-  新建 plan/卡片可以构造嵌套类型；把该卡再次作为外部输入时，describe 按上述静态规则重新证明，证明失败即拒绝。
+- **嵌套类型的外部证明限制**：DSL 类型语法/plan 结构允许 `[[T]]`、`Fn(Fn(A)->B, ...)` 作为中间节点类型；但后端固定 facade 合同只把列表元素识别为具体标量类型，Constants 只读一层 list proxy 元素类型：
+  - 外部 `variable{id}` 绑定若要求 `[[T]]` 或列表元素为 Fn，`describe` 报 `E_INPUT_BINDING`；不能靠源注解补内层。
+  - Operator value 卡的参数/返回若是 `integrateddynamics:operator`，其内层 Fn 签名不在 facade metadata；只有 call/combine 规则能从变量依赖图恢复的类型才可证明，否则拒绝。
+  - Proxy/Delay/Aspect 同样只提供其声明的外层类型。
+  新建 plan 可以构造嵌套类型节点；把该卡再次作为外部输入时，describe 仍按上述规则重新证明，证明失败即拒绝。
 
 ### 5.2 表面类型到原生 value type
 
@@ -469,7 +469,7 @@ output result : Boolean = sameItem emptyItem emptyItem;
 
 - `filter`、`reduce`、`itemCount` 原生在 `isInfinite()` 为 true 时抛错；但 `map/slice/append` 的 proxy 不传播 `isInfinite`，所以原生检查有缺口。
 - DSL 编译器对**静态 infinite** 输入报 `E_INFINITE_CONSUMER`（`filter`/`reduce`/`itemCount`）。
-- `unknown` 在预览中给 warning；服务端为防原生 `isInfinite` 缺口，在 `id_create_cards` 对无法证明 finite 的上述消费者报 `E_FINITE_UNKNOWN`（部署安全策略，不改变源语言可表达性；预览与制卡因此可能不同，文档需在 UI 提示）。
+- `unknown` 在预览/计划校验中给 `W_UNKNOWN_FINITENESS` warning，plan 仍可生成；不把 unknown 伪造为 finite。运行期原生 `filter/reduce/itemCount` 可能抛错；若底层是 `map` 产生的 lazy infinite，原生的 `isInfinite()` 传播缺口可能导致长时间遍历，需在 UI/文档提示这一风险，不承诺服务端能证明终止。
 - `length` 对 infinite 不做拒绝：原生返回 `Integer.MAX_VALUE`；`isEmpty` 返回 false。不要虚构“length 抛错”。
 - `slice` 字面量 `from >= to` 在编译期报 `E_LITERAL_RANGE`；动态边界只能在运行期由原生抛错。
 - 不把原生 API 的 `getLength()==Integer.MAX_VALUE` 当作数学无穷；不重新定义原生 length/isEmpty。
@@ -529,9 +529,9 @@ staticType(facade, visited) -> Type:
 
 - 只对**常量 value facade** 调用 `getValue()`（已反序列化，纯 metadata）；不对 Operator 表达式/Proxy/Delay/Aspect 调 `getVariable()/getValue()`。
 - `IValueTypeVariableFacade` 的 `getValueType()` 对 list 是 `integrateddynamics:list`，必须用 raw proxy 的元素类型；对 operator 是 `integrateddynamics:operator`，必须用 operator 的静态签名。空列表若是 `CATEGORY_ANY` 默认值，元素类型不可证明 → 拒绝。
-- 嵌套列表：若 raw proxy 的元素类型仍是 `integrateddynamics:list`，对非空 materialized 列表检查每个元素（同为 `ValueList`）的 raw proxy 元素类型；全部相同才返回 `[[T]]`，空/不一致 → `E_INPUT_BINDING`。不要递归求值列表元素的值，只读 metadata。
+- 嵌套列表：后端固定合同只把 raw proxy 的元素类型映射到具体标量；若元素类型仍是 `integrateddynamics:list`/operator，静态类型不可证明 → `E_INPUT_BINDING`。新建 plan 内部可以有嵌套结构，但既有变量绑定不推断 `[[T]]`。
 - `IOperatorVariableFacade.getOutputType()` 是声明 output，不是实际类型；apply/list_get/map/pipe 等会返回 ANY/LIST/OPERATOR，必须走规则表。
-- 递归 visited 使用变量 id/proxy id/part id；循环 → `E_INPUT_BINDING`（外部图环），不是源文件即时环。
+- 递归 visited 使用变量 id/proxy id/part id；循环 → `E_INPUT_BINDING`（外部图环），不是源文件即时环。后端静态 facade/Proxy/Delay 链深度上限 32（实现安全上限），超过同样报 `E_INPUT_BINDING`。
 - 无法映射的具体类型（扩展）→ `E_INPUT_BINDING`，除非固定合同表明确。
 
 ### 9.3 Aspect 固定表
@@ -551,6 +551,7 @@ staticType(facade, visited) -> Type:
 - 没有 energy list aspect；能源标量是 `integer_fe_amount`/`integer_fe_capacity`（machine_reader）与 `integer_network_energy_stored/max/consumptionrate/batterycount`（network_reader），可直接 `getValueType()`。
 - 标量 aspect 如 `integer_inventory_count/slots/slotsfilled`、`boolean_inventory_full/empty/nonempty/applicable`、`double_inventory_fillratio`、`integer_fluid_amount/amounttotal/capacity/capacitytotal/tanks`、`double_fluid_fillratio` 可直接用 `getValueType()`。
 - 未知/扩展 aspect：不在固定表 → `E_INPUT_BINDING`；不能靠源注解补类型。若扩展提供自己的固定合同，需显式扩展表。
+- `valueType` 是 category（`any/number/named/nullable`）或 `OPERATOR` 的 aspect 也不在标量可证明集合；除非固定表明确，否则 `E_INPUT_BINDING`。
 
 ### 9.4 Operator 静态规则表
 
@@ -730,6 +731,7 @@ Delay：
 | outputs | 64 |
 | 单个字符串/NBT 字面量 UTF-8 bytes | 8192 |
 | 列表字面量元素数 | 256 |
+| binding/input 名称（后端） | 64 UTF-8 bytes |
 | node id | 连续 0..n-1 |
 
 服务端可额外限制编码后的请求大小/字符串总长，但不得放宽以上语义限制。超过 → `E_LIMIT`。
@@ -749,13 +751,16 @@ Delay：
 | `E_EMPTY_LIST_TYPE` | 空列表元素类型无法确定 |
 | `E_LITERAL_RANGE` / `E_LITERAL_RESOURCE` / `E_LITERAL_NBT` | 数字越界、资源不存在/非法、SNBT 非法 |
 | `E_NATIVE_CONTRACT` | operator/aspect 不存在、无固定合同、native 不允许 |
+| `E_UNKNOWN_TYPE` | value type 不在固定核心类型表 |
+| `E_EVALUATION` | 原生/环境报告的求值类错误（不吞成假值） |
 | `E_INFINITE_CONSUMER` | 已知 infinite 传给 filter/reduce/itemCount |
-| `E_FINITE_UNKNOWN` | 服务端无法证明 finite，拒绝无限消费者 |
+| `W_UNKNOWN_FINITENESS` | 无法证明 finite；warning，plan 可生成，运行期可能失败/遍历很久 |
+| `W_UNUSED_BINDING` | input 未被可达 plan 使用的 warning |
 | `E_UNSUPPORTED_SYNTAX` | lambda/函数定义/赋值/循环等不属于语言 |
 | `E_LIMIT` | 超过 §10.4 限制 |
 | `E_TARGET_CONTRACT` | describe/plan contract 不匹配 |
-| `E_PLAN_SCHEMA` / `E_PLAN_REF` / `E_PLAN_TYPE` / `E_PLAN_OPERATOR` | 服务端计划校验失败 |
-| `E_CARD_BLANK` / `E_CARD_CAPACITY` / `E_CARD_WRITE` | 空白卡/容量/写卡失败 |
+| `E_TARGET_CONTRACT` / `E_TYPE` / `E_NATIVE_CONTRACT` / `E_INPUT_BINDING` | 服务端 plan schema/ref/类型/operator/contract 校验失败（phase=validate） |
+| `E_TARGET_CONTRACT`（phase=preflight/create） | 空白卡不足、主背包容量不足、写卡/放置失败；不是独立 E_CARD_* code |
 
 不把“未写入”“写入失败”“原生求值失败”统称语法错误；不返回 false/空 Item 伪装成功。
 
@@ -859,7 +864,7 @@ output filterFn : Fn(Item) -> Boolean = predicate;
    - aspect：`Aspects.REGISTRY.getAspect` + `IAspectRead` + part type + `hasPartVariable` + 固定表/标量类型；类型必须等于 plan；
    - 角色/权限、网络存在性；不信任客户端 binding 之外的数据。
 4. 校验 operator 注册 ID、allowlist、原生签名/规则；校验资源 ID/注册表、Item 非空、Block 默认状态、Fluid 数量、SNBT 解析、列表元素类型/长度。
-5. 校验有限性消费者（filter/reduce/itemCount）：已知 infinite 或无法证明 finite → 拒绝。
+5. 校验有限性消费者（filter/reduce/itemCount）：已知 infinite → 拒绝；unknown → 保留 warning/风险提示，不伪造 finite。
 6. 预检空白卡与背包容量（见 §12.5）；预检失败不改动。
 7. 按拓扑顺序写卡：先 aspect imports，再 nodes；每张卡分配一个真实 ID；建立 node index → actual ID 映射。
 8. 返回 created/cards/outputs；不放置、不改部件。
@@ -914,11 +919,16 @@ output filterFn : Fn(Item) -> Boolean = predicate;
 
 ### 12.5 空白卡与容量预检
 
-- 需要的新卡数 = `nodes.length + count(aspect imports)`；`variable` imports 不建卡；outputs 不额外建卡。
-- 空白卡：物品 `integrateddynamics:variable`，无 `_type` 且无 `_id`；非空白/已编程卡不能覆盖。
+- 需要的新卡数 = `nodes.length + count(unique aspect (part_id, aspect))`；`variable` imports 不建卡；outputs 不额外建卡；重复 aspect descriptor 共享一张卡（`cards` 用首个 import 名，后续 import 映射到同一 ID）。
+- 原生语义的空白卡 = 物品 `integrateddynamics:variable` 且无 `_type`/`_id`；实现策略更保守：只消耗 **tag 为空（无任何 NBT）** 的卡，任何非空 tag（自定义名/label/`_type`/`_id`）都不覆盖、不视为可用空白。只有 `_type` 或只有 `_id` 的卡是 invalid，也不是空白。
 - 空白卡总数必须 ≥ 新卡数；每张新卡需要一个 count=1 的空白卡。Item 最大堆叠 64，需按张拆分。
 - 放入玩家主背包（`Inventory` 主槽，不含 armor/offhand）；不进入快捷栏之外的特殊槽；不做 creative 绕过。
-- 预检模拟“消耗 N 张空白 + 放入 N 张带不同 NBT 的 count=1 卡”的槽位/容量；避免先消耗后失败。具体槽位算法属于后端，但必须在任何 ID 分配/写卡前完成。
+- 预检（后端实际算法，36 个主背包槽：9 快捷栏 + 27 背包；不含 armor/offhand）：
+  - 任意非空 tag 的变量卡既不是空白也不释放槽；
+  - count=1 的空白卡可在原槽原位替换，不额外占槽；
+  - count=c>1 的空白堆只有在“剩余需求≥c 且空槽≥c-1”时整堆使用：原槽 + c-1 个空槽；否则最多取 `min(remaining, freeSlots)` 张，每张占一个空槽，余量留在原槽；
+  - 空白总数不足或无法为所有新卡预留槽 → `E_TARGET_CONTRACT`（phase=preflight），不消耗/不分配。
+- 预检通过后才从主背包抽取 count=1 空白、写卡并放入预留下的槽；中途失败时未使用的空白尝试 `restore`，已写卡/已消耗 ID 不回滚。
 - 变量仓库容量 45 格/stack=1 不是制卡容量；制卡只到背包，放置由用户完成。若一次生成超过 45 张，需要多个仓库在同一网络。
 
 ### 12.6 失败语义
@@ -1001,10 +1011,10 @@ output filterFn : Fn(Item) -> Boolean = predicate;
 - Aspect `list_inventory_itemstacks` 的 part 不是 `inventory_reader` → `E_INPUT_BINDING`。
 - `item "minecraft:air"` → `E_LITERAL_RESOURCE`（空栈）。
 - NBT 非法 SNBT → `E_LITERAL_NBT`。
-- plan nodes 引用未来节点 → `E_PLAN_REF`。
-- 计划 type 与重算不符 → `E_PLAN_TYPE`。
-- 空白卡不足/背包满 → `E_CARD_CAPACITY`/`E_CARD_BLANK`，不分配 ID。
-- 写卡中途异常 → `E_CARD_WRITE`，报告已创建卡/ID，不承诺回滚。
+- plan nodes 引用未来节点 → `E_TYPE`（wire）或 `E_TARGET_CONTRACT`（validate）。
+- 计划 type 与重算不符 → `E_TYPE`。
+- 空白卡不足/背包满 → `E_TARGET_CONTRACT`（phase=preflight），不分配 ID。
+- 写卡中途异常 → `E_TARGET_CONTRACT`（phase=create）或具体 native code，报告已创建卡/ID，不承诺回滚。
 
 ## 15. 旧规范修正记录
 
@@ -1014,7 +1024,7 @@ output filterFn : Fn(Item) -> Boolean = predicate;
 | 源长度/偏移都用 UTF-8 | 源限制 UTF-8 bytes 32768；AST/诊断 UTF-16 offset，行列 1 起 |
 | 部分应用可保存为 Operator value 卡 | 动态部分应用必须 `operator_apply` 调用；CurriedOperator 序列化会快照已绑定值 |
 | Fn/List 输入可由用户注解决定 | describe 静态证明；Proxy/Delay/List/Operator facade 的 output 不足，不能证明即拒绝 |
-| map 继承有限性就够 | 原生 map/slice/append 的 `isInfinite` 不传播；DSL 自己跟踪，服务端拒绝不可证明有限的无限消费者 |
+| map 继承有限性就够 | 原生 map/slice/append 的 `isInfinite` 不传播；DSL 自己跟踪；已知 infinite 拒绝，unknown 只警告并提示运行期风险 |
 | slice 任意 [start,end) | from<to 且非负；空区间原生抛错；字面量在编译期拒绝 |
 | length(iterate) 抛错 | 原生返回 `Integer.MAX_VALUE`；isEmpty 返回 false |
 | 部署工具把输出接回 Delayer | 制卡/工具不自动放置/接线；用户手动 |

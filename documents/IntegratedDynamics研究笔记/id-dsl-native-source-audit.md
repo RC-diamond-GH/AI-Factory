@@ -33,7 +33,9 @@
 
 来源：[VariableFacadeHandlerRegistry.java](https://github.com/CyclopsMC/IntegratedDynamics/blob/69ea239d03828fc76b0384dcc487af391fd9e6bf/src/main/java/org/cyclops/integrateddynamics/core/item/VariableFacadeHandlerRegistry.java#L86-L107)。
 
-因此“真正空白”定义为：物品是 `integrateddynamics:variable`，且 NBT 不同时含 `_type` 与 `_id` 两个键。只有 `_type` 或只有 `_id` 的卡是 invalid，不是空白；制卡不得覆盖。仅无 NBT 或仅有显示名等无关 NBT 的卡可视为空白，但服务端应通过解析 facade 再次确认 `isValid()==false` 且不是已编程卡。
+因此原生“可解析为 dummy”的空白是：物品是 `integrateddynamics:variable`，且 NBT 不同时含 `_type` 与 `_id` 两个键。只有 `_type` 或只有 `_id` 的卡是 invalid，不是空白；制卡不得覆盖。
+
+**实现策略更保守**（`IdBlankCards.isBlank`）：只把 **tag 为空**（无任何 NBT）的 `integrateddynamics:variable` 当空白；任何非空 tag（自定义名/label/`_type`/`_id`）都不消耗、不覆盖。这样不会误碰带标签/旧数据的卡。文档/工具应同时说明原生 dummy 语义与这一更严格的消耗策略。
 
 ### 1.3 写入 API
 

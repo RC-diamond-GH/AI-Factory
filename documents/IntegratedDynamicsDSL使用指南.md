@@ -143,7 +143,7 @@ output enabled : Boolean = need;
 - plan 预览：与 `id_make_cards` 将发送的 plan 同构；不含真实 ID，不写卡。
 - 不修改游戏状态；不预留空白卡、不分配 ID。
 - 源文件上限 32768 UTF-8 bytes；nodes 256；inputs 64；outputs 64；type depth 16；单字面量文本 8192 bytes；列表字面量 256。超限 `E_LIMIT`。
-- 预览与制卡可能对 `unknown` 有限性有差异：预览给 warning；制卡阶段服务端若无法证明 finite，会对 `filter/reduce/itemCount` 报 `E_FINITE_UNKNOWN`。以 `id_make_cards` 结果为准。
+- `unknown` 有限性只给 `W_UNKNOWN_FINITENESS` warning，plan 仍可生成；不要依赖它做正常业务，运行期原生可能失败或长时间遍历（原生 `isInfinite` 对 map/slice 传播不完整）。
 
 编译错误不会产生可部署的部分 plan。
 
@@ -161,11 +161,11 @@ output enabled : Boolean = need;
 
 ### 5.2 空白卡与容量
 
-- 需要的新卡数 = `nodes` 数 + `aspect` imports 数。`variable` imports 不建卡；outputs 不额外建卡。未使用的源 input 不会进入 plan，也不会建 Aspect 卡。
-- 每张新卡消耗一张**真正空白**的 `integrateddynamics:variable`（无 `_type` 且无 `_id`）。已编程卡不会被覆盖；只有 `_type` 或只有 `_id` 的 invalid 卡也不是空白。
+- 需要的新卡数 = `nodes` 数 + 不重复的 aspect `(part_id, aspect)` 数；重复 aspect descriptor 共享一张卡（返回的 `cards` 只列首个 import 名，其他 import 指向同一 ID）。`variable` imports 不建卡；outputs 不额外建卡。未使用的源 input 不会进入 plan，也不会建 Aspect 卡。
+- 每张新卡消耗一张**无 NBT 的空白** `integrateddynamics:variable`。原生语义上“无 `_type` 且无 `_id`”就是 dummy，但工具更保守：任何非空 tag（自定义名/label/`_type`/`_id`）都不当作空白、不覆盖；只有 `_type` 或只有 `_id` 是 invalid，也不是空白。
 - 卡必须拆成 count=1 写；对 count>1 的堆写卡会得到同 ID 的多张卡，工具不会这样做。
-- 空白卡总数不足/主背包放不下 → `E_CARD_CAPACITY`/`E_CARD_BLANK`，预检阶段失败，不分配 ID、不消耗卡。
-- 只放主背包，不使用创造模式绕过；不放 armor/offhand。
+- 空白卡总数不足/主背包放不下 → `E_TARGET_CONTRACT`（phase=preflight），预检阶段失败，不分配 ID、不消耗卡。
+- 只放主背包（36 槽：9 快捷栏 + 27 背包），不使用创造模式绕过；不放 armor/offhand。
 - 变量仓库 45 格/stack=1 是放置阶段容量，不是制卡容量；卡多时准备多个仓库。
 
 ### 5.3 成功返回
@@ -331,14 +331,13 @@ output firstTen : [Integer] = slice naturals 0 10;
 | `E_INPUT_BINDING` | binding 缺失/多余、变量 ID 不在网络、part id/aspect 不匹配、Proxy/Delay 空槽/环、List/Fn 无法静态证明 | 检查网络/part/卡是否放入；不要用源码注解补类型；Delay 先放可证明的输入卡 |
 | `E_TYPE` / `E_UNRESOLVED_TYPE` | 数字混型、if 分支不同、空列表无上下文、Fn 未特化 | 用 `L`/显式转换/注解；给空列表类型；给 Fn 上下文 |
 | `E_NATIVE_CONTRACT` | operator/aspect 不存在、用显示名、高阶 op 当 native、扩展无固定合同 | 用注册 ID/内建语法；扩展需显式合同 |
-| `E_INFINITE_CONSUMER` / `E_FINITE_UNKNOWN` | filter/reduce/itemCount 消费已知/不可证明有限的列表 | 先 slice 到有限边界；绑定有限列表；不要依赖 map/slice 后的原生 isInfinite |
+| `E_INFINITE_CONSUMER` / `W_UNKNOWN_FINITENESS` | filter/reduce/itemCount 消费已知 infinite / 无法证明有限的列表 | 先 slice 到有限边界；绑定有限列表；不要依赖 map/slice 后的原生 isInfinite |
 | `E_LITERAL_RESOURCE` | item/block/fluid ID 不存在、`minecraft:air`、fluid 数量≤0 | 修正资源/数量；空值用 `emptyItem`/`emptyFluid` |
 | `E_LITERAL_NBT` | SNBT 语法错误/超限 | 修正 SNBT；注意 8192 bytes 限制 |
 | `E_LIMIT` | 源/节点/类型深度/输入输出/列表/字面量超限 | 拆分程序；减少输入/列表 |
-| `E_PLAN_*` | plan schema/ref/type/operator 校验失败 | 重新 `id_compile`，不要手改 plan |
-| `E_CARD_CAPACITY` | 空白卡不足或主背包放不下 | 清背包、准备足够空白卡；aspect import 也算卡 |
-| `E_CARD_BLANK` | 卡不是真正空白（有 `_type`/`_id`） | 用未编程空白卡；不要覆盖旧卡 |
-| `E_CARD_WRITE` | 写卡/背包/事件异常 | 检查已创建卡/ID；不要盲目整批重试 |
+| `E_TARGET_CONTRACT` / `E_TYPE` / `E_NATIVE_CONTRACT` / `E_INPUT_BINDING` | plan schema/ref/type/operator/contract 或 preflight/create 失败 | 重新 `id_compile`；检查空白卡/背包；不要手改 plan |
+| `E_TARGET_CONTRACT`（phase=preflight） | 空白卡不足或主背包放不下 | 清背包、准备足够空白卡；aspect import 也算卡 |
+| `E_TARGET_CONTRACT`（phase=create） | 写卡/背包/事件异常，或卡不是真正空白 | 检查已创建卡/ID；用无 NBT 空白卡；不要盲目整批重试 |
 | “variable not in network” | 卡没放入仓库/依赖卡缺失/网络不同/未刷新 | 把所有依赖卡放同一网络仓库；检查 part/aspect 卡 |
 | 卡显示 invalid/错误 | 卡被移动、part/proxy 丢失、类型不匹配 | 检查 partId/proxyId/网络；重新 describe |
 | `itemCount` 结果 0 | 查询物品空/不同 NBT/列表中无匹配 | 检查 item 字面量与库存 NBT |
@@ -370,6 +369,7 @@ output firstTen : [Integer] = slice naturals 0 10;
 | outputs | 64 |
 | 单个字符串/NBT 字面量 | 8192 UTF-8 bytes |
 | 列表字面量元素 | 256 |
+| binding/input 名称（后端） | 64 UTF-8 bytes |
 | 诊断偏移 | UTF-16 offset，行列 1 起 |
 
 ## 12. 未验证事项
