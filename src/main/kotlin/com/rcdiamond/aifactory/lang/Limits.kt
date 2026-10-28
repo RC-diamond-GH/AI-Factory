@@ -58,17 +58,20 @@ data class LanguageLimits(
  * can be legally deep while still needing a bounded interpreter stack.
  */
 data class EvaluationLimits(
-    /** Node evaluations and primitive invocations before aborting with E_LIMIT. */
+    /** Node evaluations, primitive invocations and closure applications before aborting with E_LIMIT. */
     val maxSteps: Int = 1_000_000,
     /** Recursive evaluation depth. */
     val maxDepth: Int = 512,
     /** Elements materialized by one list-producing operation. */
     val maxListElements: Int = 100_000,
+    /** UTF-16 code units (Kotlin [String.length]) materialized by one string-producing operation. */
+    val maxStringLength: Int = 1_048_576,
 ) {
     init {
         require(maxSteps > 0)
         require(maxDepth > 0)
         require(maxListElements > 0)
+        require(maxStringLength > 0)
     }
 
     companion object {
