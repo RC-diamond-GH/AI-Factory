@@ -19,7 +19,7 @@ data class LanguageLimits(
     val maxTokens: Int = 100_000,
     /** Number of top-level declarations. */
     val maxDeclarations: Int = 4_096,
-    /** Recursion depth while parsing types and expressions. */
+    /** Parsing/AST depth and checking/lowering traversal depth, including expansion across let references. */
     val maxNestingDepth: Int = 128,
     /** Structural depth of a type, including environment schemes that reach the checker. */
     val maxTypeDepth: Int = 32,

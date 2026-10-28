@@ -23,6 +23,7 @@ internal class GraphBuilder(
     private val inputReferences = LinkedHashMap<String, IrRef>()
     private val letReferences = LinkedHashMap<String, IrRef>()
     private val loweringLets = HashSet<String>()
+    private var expressionDepth = 0
     private val inputDeclarations: Map<String, InputDeclaration> =
         program.declarations.filterIsInstance<InputDeclaration>().associateBy { it.name }
     private val letDeclarations: Map<String, LetDeclaration> =
@@ -51,6 +52,22 @@ internal class GraphBuilder(
     }
 
     private fun lowerExpression(expression: Expr): IrRef {
+        if (expressionDepth >= limits.maxNestingDepth) {
+            fail(
+                DiagnosticCode.E_LIMIT,
+                expression.span,
+                "expression traversal across let references exceeds depth ${limits.maxNestingDepth}",
+            )
+        }
+        expressionDepth++
+        return try {
+            lowerExpressionBody(expression)
+        } finally {
+            expressionDepth--
+        }
+    }
+
+    private fun lowerExpressionBody(expression: Expr): IrRef {
         return when (expression) {
             is Expr.BooleanLiteral -> emit(
                 LangTypes.BOOLEAN,

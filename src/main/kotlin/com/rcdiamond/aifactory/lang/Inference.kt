@@ -304,6 +304,7 @@ internal class TypeChecker(
     private val outputTypes = LinkedHashMap<OutputDeclaration, LangType>()
     private val visitingLets = HashSet<String>()
     private var nextVariable = 0
+    private var expressionDepth = 0
 
     fun check(): CheckResult {
         return try {
@@ -349,6 +350,22 @@ internal class TypeChecker(
     }
 
     private fun infer(expression: Expr): LangType {
+        if (expressionDepth >= limits.maxNestingDepth) {
+            fail(
+                DiagnosticCode.E_LIMIT,
+                expression.span,
+                "expression traversal across let references exceeds depth ${limits.maxNestingDepth}",
+            )
+        }
+        expressionDepth++
+        return try {
+            inferExpression(expression)
+        } finally {
+            expressionDepth--
+        }
+    }
+
+    private fun inferExpression(expression: Expr): LangType {
         val type = when (expression) {
             is Expr.BooleanLiteral -> LangTypes.BOOLEAN
             is Expr.IntegerLiteral -> LangTypes.INTEGER
