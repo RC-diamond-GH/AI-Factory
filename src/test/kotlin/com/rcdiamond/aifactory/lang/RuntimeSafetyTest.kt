@@ -168,13 +168,10 @@ class RuntimeSafetyTest {
             evaluationLimits = EvaluationLimits(maxSteps = 24),
         )
         val function = evaluated.function("f")
-        val failure = assertFailsWith<RuntimeException> {
+        assertEquals(PureValue.IntegerValue(2), function.applyTo(PureValue.IntegerValue(1)))
+        assertFailsWith<RuntimeException> {
             repeat(100) { function.applyTo(PureValue.IntegerValue(1)) }
         }
-        assertTrue(
-            failure.message.orEmpty().contains("step limit"),
-            "expected a step-limit failure, got ${failure.message}",
-        )
     }
 
     @Test

@@ -2,7 +2,7 @@
 
 本文描述 `com.rcdiamond.aifactory.lang` 包。它是纯 Kotlin 的共享语言前端与可扩展后端框架，被 Integrated Dynamics DSL 及后续需要“小型命名表达式图”的功能复用。**框架本身不引用 Forge、Minecraft、Integrated Dynamics、客户端或任何世界对象**；域类型、原生 Operator 名称和对象构造器都由宿主通过环境注入。
 
-它与《IntegratedDynamicsDSL设计》的关系是：该规范决定 ID 目标环境的类型名、原语目录与原生落点；本包只实现共享的词法、语法、类型检查、即时依赖、源映射、确定性 typed graph 以及一个可用于 smoke test 的纯后端。DSL 编译器消费 `TypedModule`，把 `IrOperation` 映射为原生卡片计划；服务端不需要本包。
+它与《IntegratedDynamicsDSL设计》的关系是：该规范决定 ID 目标环境的类型名、原语目录与原生落点；本包实现共享的词法、语法、类型检查、即时依赖、源映射、确定性 typed graph 与纯求值参考后端。DSL 编译器消费 `TypedModule` 并生成原生卡片计划；服务端复用纯类型合同与计划校验，不解析或执行 DSL 源码。
 
 ## 1. 设计边界
 
@@ -109,7 +109,7 @@ fun utf8ByteLength(text: String, stopAfter: Int = Int.MAX_VALUE): Int
 ```
 
 - 不创建中间字节数组。
-- ASCII 1、BMP 2、代理对 4、孤立代理 3（不会低估）。
+- ASCII 1 字节，其他 BMP 字符 2 或 3 字节，代理对 4 字节，孤立代理保守计为 3 字节。
 - 超过 `stopAfter` 时立即返回 `stopAfter + 1`（无法表示时返回 `Int.MAX_VALUE`）。
 - `SourceText.byteLength` 首次读取时用该函数计算并缓存，不会每次重新扫描。
 
@@ -186,6 +186,7 @@ sealed interface LangType {
 - 成功模块中的每个节点类型都由 `LangType.isConcrete()` 为真；`Variable` 不会进入 graph。
 - 无 `Any`：未特化输出/参数/列表元素报 `E_UNRESOLVED_TYPE`；空列表无上下文报 `E_EMPTY_LIST_TYPE`。
 - 注解只做检查，不做转换。`Integer` 不会接受 `Long` 或 `Double`。
+- 默认 `==`／`!=`、`eq`／`ne` 要求 `Equatable`：数据值及可比较数据列表可用；函数及任何层级包含函数的列表不可比较，避免别名与内联表达式得到不同的引用等值结果。
 
 ### 6.2 TypeScheme
 
@@ -381,7 +382,7 @@ if (evaluation.success) {
 - 输入必须提供并匹配声明类型；缺失/类型不符报 `E_INPUT_BINDING`。
 - 缺失原语运行时、`op` 字面量报 `E_NATIVE_CONTRACT`；原生 `op` 需要原生后端。命名常量原语以空参数列表调用运行时，并校验结果类型。
 - 普通 Apply 参数严格求值；因此纯运行时只支持严格原语。ID 的 `constant` 这类非严格原语不由纯后端模拟。
-- 求值步骤/深度/列表物化数量受 `EvaluationLimits` 控制，超限报 `E_LIMIT`。
+- `EvaluationLimits` 在分配前限制列表／字符串增长，并计入节点、原语和闭包应用的步骤与深度；高阶 `map`／`filter`／`reduce`、组合和部分应用均不绕过预算，超限报 `E_LIMIT`。
 - 求值异常（除零、越界等）转换为 `E_EVALUATION` 诊断并附带节点源码范围。
 - 输出值再次按输出类型校验；不匹配为 `E_TARGET_CONTRACT`。
 
@@ -395,6 +396,8 @@ if (evaluation.success) {
 |`FunctionValue`|部分应用可观察；`applyTo(arg)` 继续应用，`callZero()` 调用零参函数|
 
 `FunctionValue.signature` 随已应用参数收缩；`requiredArity` 保存原始总参数数；`appliedArguments` 供测试/工具观察部分应用。
+
+返回的 `FunctionValue` 保留本次求值预算；之后调用 `applyTo`／`callZero` 仍会消耗预算，不能用函数输出逃逸工作量限制。独立调用失败会抛异常；需要统一 `BackendResult` 诊断时通过 `PureEvaluator` 执行模块。函数值不应跨求值生命周期或跨线程并发复用。宿主注入的 `PurePrimitive` 是可信 Kotlin 代码，框架检查其返回值，但不声称能中断宿主回调中的任意循环、IO 或分配。
 
 ## 9. 标准标量环境
 
@@ -439,7 +442,7 @@ data class Diagnostic(
 |`maxSourceChars`|UTF-16 字符上限|
 |`maxTokens`|词法 token 上限|
 |`maxDeclarations`|顶层声明数量|
-|`maxNestingDepth`|表达式/类型/括号递归深度|
+|`maxNestingDepth`|括号／解析递归和完整 AST 结构深度；两者分别检查，不能通过嵌套短链相乘绕过|
 |`maxTypeDepth`|类型结构深度、统一/occurs 深度|
 |`maxListLength`|单个列表字面量元素数|
 |`maxStringLength`|解码后字符串 UTF-16 长度|
@@ -447,7 +450,7 @@ data class Diagnostic(
 |`maxDependencyDepth`|let 依赖链/环搜索深度|
 |`maxDiagnostics`|保留诊断数量|
 
-`EvaluationLimits` 独立控制纯后端的 `maxSteps`、`maxDepth`、`maxListElements`。解析器对右结合运算符链使用迭代折叠；依赖环搜索使用显式栈；其余递归路径都有深度上限，因此超限返回 `E_LIMIT`，不会以 StackOverflow 结束。
+`EvaluationLimits` 独立控制 `maxSteps`、`maxDepth`、`maxListElements`、`maxStringLength`。字符串上限默认为 **1,048,576 UTF-16 单元**，不是 UTF-8 字节；列表及字符串拼接、append、map、slice 和 filter 的输出增长在分配前检查。函数输出仍绑定原预算。解析器在类型检查与 AST 哈希前迭代核验完整结构深度；依赖环搜索和名称引用收集使用显式栈／单次遍历，因此默认限制内的复合输入以 `E_LIMIT` 拒绝，不让短链嵌套乘出 StackOverflow。
 
 ## 12. 示例
 
@@ -491,7 +494,7 @@ output function : Fn(Item, Item) -> Boolean = eq;
 
 ## 14. 验证状态
 
-集成后已实际运行 `deliverySmoke build`：完整 **373** 项默认测试通过，其中共享语言 **85** 项，失败／错误／跳过均为 0。行为测试位于 `src/test/kotlin/com/rcdiamond/aifactory/lang/`，覆盖：
+已实际执行 `build` 与独立临时 CLI：完整 **393** 项默认测试通过，其中共享语言 **105** 项，失败／错误／跳过均为 0。行为测试位于 `src/test/kotlin/com/rcdiamond/aifactory/lang/`，覆盖：
 
 - `LexerParserTest`：最长 token、注释、转义/代理对、优先级、应用与减号、比较链、分号、数字边界；
 - `TypeCheckTest`：前向引用、端口命名空间、环、重复/遮蔽、未特化类型、空列表、单态、注解不转换、数值/条件/拼接/函数签名；
@@ -500,5 +503,9 @@ output function : Fn(Item, Item) -> Boolean = eq;
 - `PureEvaluatorTest`：算术、短路、Choice、输入校验、字符串、列表原语、高阶列表、部分应用、组合、flip、call0、谓词组合、溢出/浮点、运行时错误；
 - `LimitsTest`：源码/字节/token/字符串/嵌套/列表/声明/类型/依赖/节点/求值限制；
 - `SourceTest`：UTF-16 行列、CRLF、`utf8ByteLength`、诊断渲染。
+- `FrontendSafetyTest`：完整 AST 深度、未使用表达式、诊断上限、函数／嵌套函数列表的等值约束。
+- `RuntimeSafetyTest`：组合／高阶应用步骤与深度、跨输出函数预算、列表／字符串分配前限制、宿主返回值、NaN 与有符号零。
 
 独立 CLI 烟测实际调用 `LangCompiler` 与 `PureEvaluator`：`map (add 10) [1,2,3]` 再 `reduce add ... 0` 得到 `36`；未选中的除零分支不求值、结果 `42`；`false && (1 / 0 == 0)` 得到 `false`；Long 最小值正确。错误程序分别得到 `E_TYPE`、含 `a → b → a` 的 `E_CYCLE`、`E_UNKNOWN_NAME` 和带源码位置的 `E_EMPTY_LIST_TYPE`。构建生成了重混淆发布包。未启动 Minecraft 客户端／服务端，未调用付费模型 API；这不证明 ID 世界中的制卡、存储或原生持续求值已通过。
+
+独立 Code Review 发现的六项边界已先在旧实现复现，再用同一 CLI 确认修正：复合深度输入从 StackOverflow 变为 `E_LIMIT`；列表增长、1,024 次组合应用和 2 MiB 字符串增长不再绕过小预算；函数等值在编译期拒绝；Double min/max 的 NaN 与有符号零按 `Math.min`／`Math.max` 处理。验证后的临时脚本不作为发布功能保留。
