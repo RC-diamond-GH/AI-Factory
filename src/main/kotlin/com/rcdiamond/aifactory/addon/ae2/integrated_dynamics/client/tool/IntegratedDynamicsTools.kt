@@ -11,15 +11,10 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 
 /**
- * Registers the three read-only Integrated Dynamics inspection tools.
+ * Registers ID inspection plus client-side DSL preview and explicit native-card creation.
  *
- * The tools hold only schemas and argument policy; every request is handed to [gateway], which the
- * client composition root wires to the locked terminal session. Nothing here references Integrated
- * Dynamics or Minecraft, so only the caller decides whether the mod is present.
- *
- * Each tool validates the model's arguments against the shared
- * [com.rcdiamond.aifactory.addon.ae2.integrated_dynamics.tool.IntegratedDynamicsToolArguments] parser,
- * which the server reuses, so a filter or offset the client accepts is always one the server accepts.
+ * These tools depend only on pure Kotlin/JSON contracts. The gateway binds game requests to the
+ * leased terminal; compilation runs off the game thread and never evaluates live network values.
  */
 object IntegratedDynamicsTools {
     /** Every operation the registered tools may send to the gateway; anything else is a bug. */
@@ -29,6 +24,8 @@ object IntegratedDynamicsTools {
         manager.register(IdNetworkInfoTool(gateway))
         manager.register(IdListPartsTool(gateway))
         manager.register(IdListVariablesTool(gateway))
+        manager.register(IdDslTool(gateway, createCards = false))
+        manager.register(IdDslTool(gateway, createCards = true))
     }
 
     /** Reads the call's arguments as an object. */

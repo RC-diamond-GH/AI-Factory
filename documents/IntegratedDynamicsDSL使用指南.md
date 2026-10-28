@@ -2,9 +2,9 @@
 
 ## 0. 适用范围与边界
 
-本指南对应 Minecraft 1.20.1 / Forge 47.0.1 / Integrated Dynamics `1.31.3`（commit `69ea239d03828fc76b0384dcc487af391fd9e6bf`）。语言、类型规则、plan schema 与原生 API 的完整合同见 [`IntegratedDynamicsDSL设计.md`](./IntegratedDynamicsDSL设计.md)；源码证据见 [`IntegratedDynamics研究笔记/id-dsl-native-source-audit.md`](./IntegratedDynamics研究笔记/id-dsl-native-source-audit.md)。
+本指南对应 Minecraft 1.20.1 / Forge 47.4.10 / Integrated Dynamics `1.31.3`（commit `69ea239d03828fc76b0384dcc487af391fd9e6bf`）。语言、类型规则、plan schema 与原生 API 的完整合同见 [`IntegratedDynamicsDSL设计.md`](./IntegratedDynamicsDSL设计.md)；源码证据见 [`IntegratedDynamics研究笔记/id-dsl-native-source-audit.md`](./IntegratedDynamics研究笔记/id-dsl-native-source-audit.md)。
 
-本轮只做源码静态核对，**没有启动游戏、没有实际制卡/放置/接线、没有运行构建或测试**。下面的工具行为是冻结协议与设计合同；真实客户端/服务端实现完成后仍需游戏内验收。
+语言、纯编译器／独立计划校验和 Agent Tool 已实现并经过构建、测试与离线烟测。**没有启动游戏、没有实际制卡／放置／接线或验证原生网络求值**；离线结果不代替游戏内验收。
 
 DSL 用于生成原生变量卡构造计划，不是客户端脚本，也不会在客户端执行世界逻辑。制卡只把卡放进玩家主背包；不自动放置、不自动接变量仓库、不改部件。
 
@@ -144,6 +144,7 @@ output enabled : Boolean = need;
 - 不修改游戏状态；不预留空白卡、不分配 ID。
 - 源文件上限 32768 UTF-8 bytes；nodes 256；inputs 64；outputs 64；type depth 16；单字面量文本 8192 bytes；列表字面量 256。超限 `E_LIMIT`。
 - `unknown` 有限性只给 `W_UNKNOWN_FINITENESS` warning，plan 仍可生成；不要依赖它做正常业务，运行期原生可能失败或长时间遍历（原生 `isInfinite` 对 map/slice 传播不完整）。
+- 预览不检查游戏注册表是否存在对应 Item/Block/Fluid；服务端制卡预检会最终核对存在性、非空原型和 Minecraft SNBT。预览成功不是库存容量或原生运行求值成功的保证。
 
 编译错误不会产生可部署的部分 plan。
 
@@ -330,14 +331,16 @@ output firstTen : [Integer] = slice naturals 0 10;
 |---|---|---|
 | `E_INPUT_BINDING` | binding 缺失/多余、变量 ID 不在网络、part id/aspect 不匹配、Proxy/Delay 空槽/环、List/Fn 无法静态证明 | 检查网络/part/卡是否放入；不要用源码注解补类型；Delay 先放可证明的输入卡 |
 | `E_TYPE` / `E_UNRESOLVED_TYPE` | 数字混型、if 分支不同、空列表无上下文、Fn 未特化 | 用 `L`/显式转换/注解；给空列表类型；给 Fn 上下文 |
-| `E_NATIVE_CONTRACT` | operator/aspect 不存在、用显示名、高阶 op 当 native、扩展无固定合同 | 用注册 ID/内建语法；扩展需显式合同 |
+| `E_NATIVE_CONTRACT` | operator/aspect 不存在、用显示名、可变签名 apply/apply0 当 native、扩展无固定合同 | 用注册 ID/普通应用/内建 `call0`；固定高阶 scheme 可以特化，扩展需显式合同 |
 | `E_INFINITE_CONSUMER` / `W_UNKNOWN_FINITENESS` | filter/reduce/itemCount 消费已知 infinite / 无法证明有限的列表 | 先 slice 到有限边界；绑定有限列表；不要依赖 map/slice 后的原生 isInfinite |
-| `E_LITERAL_RESOURCE` | item/block/fluid ID 不存在、`minecraft:air`、fluid 数量≤0 | 修正资源/数量；空值用 `emptyItem`/`emptyFluid` |
-| `E_LITERAL_NBT` | SNBT 语法错误/超限 | 修正 SNBT；注意 8192 bytes 限制 |
+| `E_LITERAL_RESOURCE` | Item/Block/Fluid ID 不存在，或 `item "minecraft:air"`／`fluid "minecraft:empty"` 产生空原型 | 修正资源；空值用 `emptyItem`/`emptyFluid`，Block 的 air 是合法默认状态 |
+| `E_LITERAL_RANGE` | Integer/Long 越界、Fluid 数量≤0、字面量索引／slice 边界不合法 | 修正范围、数量或索引；不把范围错误当作缺失资源 |
+| `E_LITERAL_NBT` | SNBT 语法错误、内部递归超限或尾随文本 | 修正 SNBT；递归预算 32，文本 8192 bytes 超限另报 `E_LIMIT` |
 | `E_LIMIT` | 源/节点/类型深度/输入输出/列表/字面量超限 | 拆分程序；减少输入/列表 |
 | `E_TARGET_CONTRACT` / `E_TYPE` / `E_NATIVE_CONTRACT` / `E_INPUT_BINDING` | plan schema/ref/type/operator/contract 或 preflight/create 失败 | 重新 `id_compile`；检查空白卡/背包；不要手改 plan |
 | `E_TARGET_CONTRACT`（phase=preflight） | 空白卡不足或主背包放不下 | 清背包、准备足够空白卡；aspect import 也算卡 |
 | `E_TARGET_CONTRACT`（phase=create） | 写卡/背包/事件异常，或卡不是真正空白 | 检查已创建卡/ID；用无 NBT 空白卡；不要盲目整批重试 |
+| `E_TYPE`，比较函数或函数列表 | Fn 不提供 DSL 相等性，包括嵌套列表 | 比较函数的输入／输出数据，不比较算子对象身份 |
 | “variable not in network” | 卡没放入仓库/依赖卡缺失/网络不同/未刷新 | 把所有依赖卡放同一网络仓库；检查 part/aspect 卡 |
 | 卡显示 invalid/错误 | 卡被移动、part/proxy 丢失、类型不匹配 | 检查 partId/proxyId/网络；重新 describe |
 | `itemCount` 结果 0 | 查询物品空/不同 NBT/列表中无匹配 | 检查 item 字面量与库存 NBT |
@@ -356,7 +359,7 @@ output firstTen : [Integer] = slice naturals 0 10;
 
 - 现有 `SharedContextCodec` 会把模型 `ToolCall.arguments`（含 `source`）作为对话上下文保存到服务端世界存档。因此不能笼统声称“服务端从不接收/保存 DSL 源码”。
 - 这段 source 是不透明对话数据，不参与卡片、plan 校验或 ID 分配；沿用现有隐私/容量合同。
-- 不要把密钥/敏感信息写进 source；如果不应持久化，就不要调用工具或使用现有隐私开关/清理策略。
+- 不要把密钥／敏感信息写进 source；机制 RPC 无源码不等于服务器不可见或加密。若不应保存到持久化会话，就不要经该会话调用工具；清理历史不承诺安全擦除世界备份。
 
 ## 11. 限制速查
 
@@ -364,17 +367,23 @@ output firstTen : [Integer] = slice naturals 0 10;
 |---|---:|
 | 源文件 | 32768 UTF-8 bytes |
 | 类型深度 | 16 |
-| nodes | 256 |
+| 声明 / 解析、AST 与跨 let 检查／降 IR 遍历深度 | 1024 / 128 |
+| 共享 typed IR nodes | 8192 |
+| plan nodes（实体定义卡） | 256 |
 | inputs/imports | 64 |
 | outputs | 64 |
 | 单个字符串/NBT 字面量 | 8192 UTF-8 bytes |
+| SNBT 值递归深度（根值为 0） | 32 |
 | 列表字面量元素 | 256 |
+| 不同 value 卡的物化 JSON 节点合计 | 4096 |
+| 完整 plan UTF-8 bytes / 原始 JSON 物理深度 | 262144 / 64 |
+| 一次制卡的主背包物理上限 | 36 张新卡；还需有可用空白卡与可释放槽 |
 | binding/input 名称（后端） | 64 UTF-8 bytes |
 | 诊断偏移 | UTF-16 offset，行列 1 起 |
 
 ## 12. 未验证事项
 
 - 未启动游戏；未实际制卡、拆空白卡、放入变量仓库、接部件、验证 Delayer 反馈。
-- 未运行 Gradle/编译器/测试；客户端 tool、后端 `Sessions.kt`/网络包/UI 的实际行为未验证。
+- 构建、纯编译与 ToolManager 错误路径已离线执行；Minecraft 实体库存与原生制卡事件依赖 Forge 启动环境，未用离线结果冒充实测。界面只验证本地化格式化输出，未启动实际游戏界面。
 - 未验证所有扩展 aspect/operator；只支持固定核心表和显式合同。
 - 未验证多人/跨维度 GlobalCounters 时序；实现必须只在服务端分配 ID。

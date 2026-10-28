@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased — Integrated Dynamics DSL and native card tools
+
+- Reuse the shared functional-language compiler for a typed Haskell-like ID DSL: explicit inputs, monomorphic bindings, higher-order native operators, partial application, composition, lists and conditional card graphs.
+- Add `id_compile` for previews and `id_make_cards` for explicit creation. Source-free mechanism RPCs carry only bindings or bounded plans; conversation history can still contain source.
+- Independently validate schema, topology, input proofs, concrete signatures, finiteness, resources and SNBT before allocating IDs. Create real native facades with native handlers; consume truly blank cards and reserve main-inventory space without overwriting existing cards.
+- Separate 8192 typed IR nodes from 256 physical definitions; enforce distinct-value JSON and encoded-plan budgets before recursive serialization. Share duplicate literals/aspects without double charging. Drain smaller blank-card stacks first.
+- Report phase/code/node/input, client-mapped source positions, actionable hints and truthful partial-creation results. Functions have no data equality; concrete constraint violations are type errors, not requests for more annotations. Writes are not transactionally rolled back.
+- Upgrade shared-session protocol to **7** and add English/Chinese tool summaries. Keep native evaluation, deployment, logistics and Delay/Proxy wiring under player/ID control.
+- Provide the [DSL design and extension API](documents/IntegratedDynamicsDSL设计.md), [user guide](documents/IntegratedDynamicsDSL使用指南.md) and updated player/developer documentation.
+- Verification: the complete integration `build` passed **447** tests, including **108** language cases, **47** DSL cases and **4** inventory-planning cases, with zero failures/errors/skips. Offline compiler/ToolManager/error mapping, deep-plan/inventory probes, direct decoder limits and real native Integer/NBT facade serialization plus higher-order contracts were exercised. No Minecraft client/server, actual-world card creation, game UI or paid model API was started.
+
 ## Unreleased — shared functional language framework
 
 - Add the Minecraft/Forge-independent `lang` module: source-aware parser, monomorphic types, host-injected primitive contracts, bounded dependency checking and deterministic typed graphs.

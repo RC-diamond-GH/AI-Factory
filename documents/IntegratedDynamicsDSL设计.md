@@ -2,9 +2,9 @@
 
 ## 0. 版本、证据边界与结论
 
-本文是 Minecraft 1.20.1 / Forge 47.0.1 / Integrated Dynamics `1.31.3` 的 DSL 语言、静态类型环境、编译计划与原生制卡合同。目标源码固定为 [`69ea239d03828fc76b0384dcc487af391fd9e6bf`](https://github.com/CyclopsMC/IntegratedDynamics/tree/69ea239d03828fc76b0384dcc487af391fd9e6bf)；原生 API、NBT、operator/aspect 表与细节证据见 [`IntegratedDynamics研究笔记/id-dsl-native-source-audit.md`](./IntegratedDynamics研究笔记/id-dsl-native-source-audit.md)。
+本文是 Minecraft 1.20.1 / Forge 47.4.10 / Integrated Dynamics `1.31.3` 的 DSL 语言、静态类型环境、编译计划与原生制卡合同。目标源码固定为 [`69ea239d03828fc76b0384dcc487af391fd9e6bf`](https://github.com/CyclopsMC/IntegratedDynamics/tree/69ea239d03828fc76b0384dcc487af391fd9e6bf)；原生 API、NBT、operator/aspect 表与细节证据见 [`IntegratedDynamics研究笔记/id-dsl-native-source-audit.md`](./IntegratedDynamics研究笔记/id-dsl-native-source-audit.md)。
 
-**验证边界**：本轮只静态阅读目标 commit 源码，没有启动游戏、没有运行 Gradle、没有在真实世界制卡或放置卡，也没有验证客户端工具/后端网络包的运行结果；文中不把源码推导冒充游戏实测。凡涉及实际 `writeVariableFacadeItem`、库存容量、变量仓库刷新、Delayer 反馈的行为，实现后仍需游戏内验证。
+**验证边界**：语言、纯编译／计划校验和客户端工具已实现；离线 CLI 已执行编译、诊断、实际 ToolManager 预览与错误位置回映射，构建与测试记录见开发记录及 CI。未启动游戏，未在真实世界制卡、放卡或求值；原生 handler、库存更新、变量仓库刷新、Delayer 反馈、界面和多人行为仍需游戏内验收。
 
 本设计解决的是“有限语言 + 结构化计划 + 原生卡片”的闭环：
 
@@ -289,6 +289,7 @@ Type = "Boolean" | "Integer" | "Long" | "Double" | "String"
 - 未确定的 Fn 参数/列表元素/输出类型必须由上下文、注解或服务端输入合同确定，否则 `E_UNRESOLVED_TYPE`；空列表尤其需要上下文。
 - 不能把未知签名的既有 Operator/Proxy/Delay 注解成任意 Fn；服务端静态证明失败即拒绝。
 - 编译期类型通过不保证外部输入永远不变；Proxy 目标变更、变量存储卡替换、运行期列表/操作错误仍由原生报告。
+- `==`、`!=`、`eq`、`ne` 只比较数据值；Fn 没有稳定的 DSL 相等性，直接或嵌套在列表中的 Fn 一律报 `E_TYPE`。不要用算子对象身份判断语义等价。
 
 示例：
 
@@ -355,14 +356,14 @@ output result : Boolean = sameItem emptyItem emptyItem;
 
 `op "ns:id"` 只接受注册表中存在、且服务端固定合同可静态证明签名的 Operator：
 
-- 其声明签名（`getInputTypes()/getOutputType()`）不含 `Any`/`Number`/`Named`/`Nullable` 等类别，或该 ID 在固定 typed 表中；否则 `E_NATIVE_CONTRACT`。
+- 当前只接受 `IdOperatorCatalog` 固定表里的 ID，并要求具体 Fn 类型匹配其 scheme；服务端再核对实际注册算子的输入／输出 category。不因为某个第三方算子“已经注册”或源码有注解就放行。
 - 在 plan 中，`op` 节点是 `native`，必须给出具体 Fn 类型，例如：
   ```json
   {"id":0,"kind":"native","operator":"integrateddynamics:itemstack_mod",
    "type":{"fn":["Item"],"result":"String"}}
   ```
 - 不允许用显示名/Global name/方法名替代注册 ID；不从在线书名称猜注册名。
-- 高阶/组合 operator（apply/pipe/pipe2/flip/conjunction/disjunction/negation/map/filter/reduce 等）不能作为 `native` 常量；它们只由编译器生成的 `call` 表达。原因是原生声明只给 OPERATOR/ANY，真实 Fn 签名不在 registry 中；动态参数也不能安全地存进 Operator value 卡。
+- `map` / `filter` / `reduce` / `pipe` / `pipe2` / 谓词组合等有固定 scheme，允许无绑定参数的 native 常量和后续部分应用。`flip` 按结构化交换规则检查；`apply` / `apply0` 参数结构可变，只能由调用语法生成 call。动态已绑定参数不能装进 native 常量，以免原生序列化快照实时值。
 
 ## 7. 函数值、应用、部分应用与内建库
 
@@ -568,8 +569,8 @@ staticType(facade, visited) -> Type:
 | `operator_filter` | [Fn(A)->Boolean, [A]] | [A] |
 | `operator_conjunction` / `operator_disjunction` | [Pred(A), Pred(A)]；Pred(A)=Fn(A)->Boolean | Pred(A) |
 | `operator_negation` | [Pred(A)] | Pred(A) |
-| `operator_pipe` | [Fn(A)->B, Fn(B,C...)->R] | `Fn(A,C...)->R` |
-| `operator_pipe2` | [Fn(A)->B, Fn(A)->C, Fn(B,C,D...)->R] | `Fn(A,D...)->R` |
+| `operator_pipe` | [Fn(A)->B, Fn(B)->C] | `Fn(A)->C` |
+| `operator_pipe2` | [Fn(A)->B, Fn(A)->C, Fn(B,C)->D] | `Fn(A)->D` |
 | `operator_flip` | [Fn(A,B,C...)->R]，≥2 参 | `Fn(B,A,C...)->R` |
 | `operator_reduce` | [Fn(A,B)->A, [B], A]；f 恰 2 参 | A |
 | `list_get` | [[A], Integer] | A |
@@ -595,7 +596,7 @@ staticType(facade, visited) -> Type:
 规则细节：
 
 - `operator_apply` 的 first input 类型必须是 Fn；fn 不可为 0 参；arg 类型必须等于 P1。若 fn 是 `native`/call 的静态 Fn，直接用；若 fn 是 Proxy/Delay/未知 → 递归静态图；无法证明 → `E_INPUT_BINDING`。
-- `operator_pipe`/`pipe2` 的 f/g 必须单参（DSL 源语法限制）；h 的额外参数保留在结果 Fn 中。`pipe2` 的 f/g 输出必须分别对应 h 的第 1/2 参数；f/g 都会先求值。
+- `operator_pipe` 两个函数均单参；`pipe2` 的 f/g 单参、h 恰 2 参，f/g 输出对应 h 的两个参数且都会先求值。这与 §7.2 的语言／plan 子集一致；原生 Pipe/Pipe2 支持的额外参数不暴露到当前合同，已有此类高阶卡若无法在固定合同中证明则拒绝，不读实时值猜测。
 - `operator_flip` 至少 2 参；交换前两个，其余保持。
 - `operator_map` f 必须单参；`operator_filter` 谓词必须单参 Boolean；`reduce` f 必须恰 2 参；`iterate` 的 f 输出必须与 seed 同类型。
 - 不在表内的 operator：
@@ -658,7 +659,7 @@ Delay：
 2. 收集 input/let/output；解析前向引用；检查即时依赖环。
 3. 用 describe 类型 + 内建签名 + 注解生成具体类型约束；确定数值/列表/Fn 特化；检查空列表/未解析类型。
 4. 检查 bindings 与 inputs 完全匹配；检查类型与 finite。
-5. 跟踪有限性；检查已知 infinite 消费者；字面量范围/资源/SNBT 在服务端最终校验（客户端可预检 registry 视图，但不作为权威）。
+5. 跟踪有限性；检查已知 infinite 消费者；客户端检查数字范围、资源 ID 格式与 SNBT 语法，不读取游戏注册表。资源存在性、非空原型与 Minecraft SNBT 解析由服务端最终校验。
 6. 从 outputs 追溯可达节点；去掉纯别名；按确定顺序生成 plan 节点/refs。
 7. 生成 `outputs` 映射与 sourceMap（客户端）；不分配 ID、不写卡。
 8. 同一源+同一环境应产生稳定节点顺序/编号；不因哈希表遍历改变。
@@ -710,7 +711,7 @@ Delay：
   - 列表元素只能是上述字面量编码，不能是 node ref/表达式；动态列表用 `call list_append` 构建。
 - `native`：
   - `operator` 是实际注册 ID；`type` 必须是该 operator 的合法具体特化；
-  - 仅用于无绑定参数的原生 operator 常量；高阶组合 operator 不允许作为 native。
+  - 仅用于无绑定参数的原生 operator 常量；固定表中有完整类型 scheme 的高阶算子同样可特化为具体 Fn。`operator_apply` / `operator_apply0` 的可变参数规则不能作为 native 常量。
 - `call`：
   - `operator` 是实际注册 ID；`args` 是该 operator 的完整输入（除 `operator_apply`/`apply0` 的特殊规则外，长度必须等于原生 required）；
   - `operator_apply` 固定 2 args：`[fn, arg]`；`operator_apply0` 固定 1 arg：`[fn]`；
@@ -726,15 +727,21 @@ Delay：
 |---|---:|
 | 源文件 UTF-8 bytes | 32768 |
 | 类型深度（节点数） | 16 |
-| nodes | 256 |
+| 声明 / 解析、AST 与跨 let 检查／降 IR 遍历深度 | 1024 / 128 |
+| 共享 typed IR nodes（静态列表压成值卡之前） | 8192 |
+| plan nodes（实体定义卡） | 256 |
 | inputs（imports） | 64 |
 | outputs | 64 |
 | 单个字符串/NBT 字面量 UTF-8 bytes | 8192 |
+| SNBT 值递归深度（根值为 0，Minecraft 解析前的结构预检） | 32 |
 | 列表字面量元素数 | 256 |
+| 所有不同 value 卡的物化 JSON 节点合计（对象／数组／标量均计 1，重复子树逐次计） | 4096 |
+| 完整 plan 编码 UTF-8 bytes | 262144 |
+| plan 原始 JSON 物理深度（含 envelope/type） | 64 |
 | binding/input 名称（后端） | 64 UTF-8 bytes |
 | node id | 连续 0..n-1 |
 
-服务端可额外限制编码后的请求大小/字符串总长，但不得放宽以上语义限制。超过 → `E_LIMIT`。
+超过一般资源限额返回 `E_LIMIT`；SNBT 内部递归超限属于 `E_LITERAL_NBT`。同类型同字面值复用同一 value 卡，不重复扣除该卡的 JSON 预算；同一值内部重复子树仍按实际序列化次数计数。8192 的 typed IR 上限与 256 张定义卡上限不同：两个各含 256 个静态整数的列表只需两张值卡。服务端先有界计量 JSON，再解码 schema；不能先对不可信深树执行 `toString()`。
 
 ### 10.5 诊断
 
@@ -906,12 +913,12 @@ output filterFn : Fn(Item) -> Boolean = predicate;
 | plan value | 构造 |
 |---|---|
 | Boolean/Integer/Long/Double/String | `ValueTypeBoolean.ValueBoolean.of` / `ValueInteger.of` / `ValueLong.of` / `ValueDouble.of` / `ValueString.of`；范围/有限性校验 |
-| Item `{resource}` | `ForgeRegistries.ITEMS.getValue`；非 null 且 `new ItemStack(item)` 非空；count=1，无 NBT |
+| Item `{resource}` | `ForgeRegistries.ITEMS.containsKey` + `getValue`；`new ItemStack(item)` 必须非空，count=1、无 NBT |
 | Item `null` | `ItemStack.EMPTY` |
-| Block `{resource}` | `ForgeRegistries.BLOCKS.getValue`；`defaultBlockState()` |
-| Fluid `{resource,amount}` | `ForgeRegistries.FLUIDS.getValue`；`new FluidStack(fluid, amount)`，amount>0 |
+| Block `{resource}` | `ForgeRegistries.BLOCKS.containsKey` + `getValue`；`defaultBlockState()`，不允许缺失 ID 静默落到默认空气 |
+| Fluid `{resource,amount}` | `ForgeRegistries.FLUIDS.containsKey` + `getValue`；`new FluidStack(fluid, amount)`，amount>0 且栈非空 |
 | Fluid `null` | `FluidStack.EMPTY` |
-| NBT SNBT | `TagParser.parseTag`；空串 → empty `ValueNbt`；失败 `E_LITERAL_NBT` |
+| NBT SNBT | `TagParser(StringReader).readValue()`，支持复合／列表／标量根；跳过尾空白后必须 EOF；空串或尾随文本报 `E_LITERAL_NBT` |
 | List `[...]` | `ValueTypeList.ValueList.ofList(elementType, List<IValue>)`；元素递归按元素类型构造；元素类型来自 node.type 的 `{list:T}`；空数组同样使用具体 T |
 | Nested List | 递归 `ValueList.ofList`；类型必须匹配 |
 
@@ -925,11 +932,13 @@ output filterFn : Fn(Item) -> Boolean = predicate;
 - 放入玩家主背包（`Inventory` 主槽，不含 armor/offhand）；不进入快捷栏之外的特殊槽；不做 creative 绕过。
 - 预检（后端实际算法，36 个主背包槽：9 快捷栏 + 27 背包；不含 armor/offhand）：
   - 任意非空 tag 的变量卡既不是空白也不释放槽；
+  - 按空白堆数量升序、同数量按槽位顺序分配，优先耗尽较小堆以释放槽；不按背包原始顺序先拆大堆；
   - count=1 的空白卡可在原槽原位替换，不额外占槽；
   - count=c>1 的空白堆只有在“剩余需求≥c 且空槽≥c-1”时整堆使用：原槽 + c-1 个空槽；否则最多取 `min(remaining, freeSlots)` 张，每张占一个空槽，余量留在原槽；
   - 空白总数不足或无法为所有新卡预留槽 → `E_TARGET_CONTRACT`（phase=preflight），不消耗/不分配。
+- 一次最多生成 36 张新卡；plan 允许 256 个定义并不代表背包能容纳它们。只引用既有变量的零制卡程序不要求空槽或空白卡。
 - 预检通过后才从主背包抽取 count=1 空白、写卡并放入预留下的槽；中途失败时未使用的空白尝试 `restore`，已写卡/已消耗 ID 不回滚。
-- 变量仓库容量 45 格/stack=1 不是制卡容量；制卡只到背包，放置由用户完成。若一次生成超过 45 张，需要多个仓库在同一网络。
+- 变量仓库容量 45 格/stack=1 不是制卡容量；制卡只到背包，放置由用户完成。多批制卡累计超过 45 张时，需要同一网络中的多个仓库。
 
 ### 12.6 失败语义
 
@@ -994,9 +1003,9 @@ output filterFn : Fn(Item) -> Boolean = predicate;
 
 ## 14. 诊断审查用例
 
-以下均为规范推导，不表示已有编译器执行：
+以下是合同边界用例；实际已执行的用例与游戏内未验证项须区分，见 CI 与开发记录：
 
-- `input energy : Long; energy < 1000;` → `E_TYPE`，提示 `1000L`/`toLong`。
+- `input energy : Long; output low = energy < 1000;` → `E_TYPE`，提示 `1000L`/`toLong`（energy 需正常绑定）。
 - `let f = eq;` 一处当 Integer 比较器、一处当 Item 比较器 → `E_TYPE`/`E_FN_SIGNATURE`（单态 let）。
 - `if true then 1 else "x"` → `E_TYPE`，即使 else 不执行。
 - `let a = b; let b = a; output x = a;` → `E_CYCLE`，报告 a→b→a。
@@ -1005,7 +1014,7 @@ output filterFn : Fn(Item) -> Boolean = predicate;
 - `slice naturals 10 10` → `E_LITERAL_RANGE`（原生会抛错，不返回空切片）。
 - `pipe2 f g h` 中 f/g 非单参或 h 非二参 → `E_FN_SIGNATURE`。
 - `constant false` 无上下文输出 → `E_UNRESOLVED_TYPE`；上下文 `Fn(Item)->Boolean` 可特化。
-- `op "integrateddynamics:operator_map"` 作为独立 Fn 值 → `E_NATIVE_CONTRACT`（高阶 operator 不能作为 native 常量；使用内建 `map` 生成 call）。`op "integrateddynamics:logical_and"` 的声明签名 [Boolean,Boolean]→Boolean 具体，可作为 native。
+- `output m : Fn(Fn(Integer)->Integer,[Integer])->[Integer] = op "integrateddynamics:operator_map";` 可按固定高阶 scheme 特化；`op "integrateddynamics:operator_apply"` / `operator_apply0` 报 `E_NATIVE_CONTRACT`，应使用普通应用 / `call0`。未知注册 ID 或未入固定表的第三方算子同样拒绝。
 - existing variable 的 facade output 是 ANY（apply/list_get/proxy/delay）且静态图不能证明 → `E_INPUT_BINDING`，不信任源注解。
 - Delay 输入槽空，绑定 `[Boolean]` → `E_INPUT_BINDING`。
 - Aspect `list_inventory_itemstacks` 的 part 不是 `inventory_reader` → `E_INPUT_BINDING`。
@@ -1073,3 +1082,61 @@ output filterFn : Fn(Item) -> Boolean = predicate;
 - 客户端 `id_compile`/`id_make_cards` 与后端 `id_describe_inputs`/`id_create_cards` 的网络包、线程、UI、权限与取消。
 - Delayer 手动反馈接线、采样顺序与容量。
 - 所有扩展 Mod 的额外 type/operator/aspect；本文只覆盖固定版本核心。
+
+## 19. 实现 API 与扩展方法
+
+### 19.1 模块边界
+
+| 代码 | 职责 |
+|---|---|
+| `com.rcdiamond.aifactory.lang` | 全 Mod 共享的 lexer/parser、类型约束、可达 typed IR、backend SPI 和可选纯求值器；不依赖 Minecraft、Forge 或 ID |
+| `addon/ae2/integrated_dynamics/dsl/IdDslCompiler.kt` | 注入 ID 类型／算子环境，检查 describe 合同，将共享 IR 降成 native card plan，生成客户端 sourceMap |
+| `IdOperatorCatalog.kt` | 固定原语／注册 ID／类型 scheme，以及动态 apply/flip 规则 |
+| `IdDslWire.kt` / `IdPlanValidator.kt` / `IdDslValueBudget.kt` | 严格 JSON codec、有界计量、拓扑／字面量／类型／有限性重算；纯 Kotlin，客户端与服务端均可使用 |
+| `server/IdFacadeTypes.kt` / `IdNativeCatalog.kt` | 从真实网络定义证明输入类型，核对固定合同与实际原生注册表；不调用实时变量 `getValue()` |
+| `server/IdNativeValues.kt` / `IdBlankCards.kt` / `IdNativeBackend.kt` | 原生值转换、36 槽分配、预检后写真实 facade；只在游戏服务端线程运行 |
+| `client/tool/IdDslTool.kt` | describe → 可取消的后台纯编译 → 预览或 plan-only create；把后端 node/input 错误回映射到源码 |
+
+ID 后端只复用共享编译前端与 IR，**不通过 `PureEvaluator` 模拟 ID**。纯求值器的严格应用、预算和主机原语属于另一 backend；卡片的惰性分支、部分应用和世界读取由 ID 原生实现。
+
+### 19.2 纯编译与独立校验
+
+```kotlin
+val result = IdDslCompiler.compile(source, inputDescription)
+if (result.success) {
+    val planJson = checkNotNull(result.plan)
+    val typedPlan = checkNotNull(result.typedPlan)
+    val sourceMap = checkNotNull(result.sourceMap)
+    // planJson 可发送；typedPlan/sourceMap 用于本地预览和定位，不进入机制 RPC。
+} else {
+    val errors = result.diagnostics
+    val readable = result.renderDiagnostics()
+}
+```
+
+`inputDescription` 必须来自当前授权网络的 `id_describe_inputs`；不能用源码注解构造“可信类型”。`IdCompileResult` 只有无 error 时才有 plan，warning 不阻止生成；`nodeCount` 是定义节点，`cardsRequired` 还计入不同 Aspect descriptor，`outputCount` 是端口数，不是新卡数。
+
+服务端收到 plan 后，必须先从自身网络解析得到 `Map<String, IdResolvedInput>`，再调用：
+
+```kotlin
+val checked = IdPlanValidator.validate(untrustedPlanJson, resolvedInputs)
+val plan = if (checked.ok) checked.requireValid() else null
+```
+
+不得从 plan 的 `imports.type/finite` 原样复制出 `resolvedInputs`；那会把独立校验降成客户端自证。纯 validator 也不替代原生注册表、SNBT、授权、可用空白卡与容量预检，后续必须走 `IdNativeBackend`。
+
+### 19.3 增加固定算子或新类型
+
+1. 固定并阅读目标 Mod 的源码版本，记录真实注册 ID、输入／输出 category、求值与序列化行为；尤其检查是否快照已绑定参数、是否遍历整个列表。
+2. 在 `IdOperatorCatalog` 增加明确的 `IdNativeOperator` scheme／动态规则；需要便利名称时再加 `IdPrimitive` lowering。高阶参数和返回必须保留完整 Fn，不能用 `Any` 或裸 `Operator`。
+3. 同步纯 plan validator、有限性传播和服务器 native contract 检查；新的无限列表消费者必须声明／验证要求，不能只看原生 `isInfinite()`。
+4. 若添加新标量或字面量，同步 `IdDslTypes`、wire codec、源环境、native type 映射、输入静态证明及原生值构造；注册表必须 `containsKey` 后再取值，不接受默认值回退。
+5. 保留失败前／成功后的行为回归：类型边界、错误 source span、alias/card budget、伪造计划拒绝和预检不改动。不要只测试字段复制、文案或 mock 回声。
+6. 修改可见语义／wire 时更新 contract/version、两端协议与本设计；更新 ID 版本不能只替换依赖号或自动信任新的注册算子。
+
+### 19.4 验证与运行限制
+
+在根目录 PowerShell 加载 `Set-DevEnv.ps1` 后执行 `.\gradlew.bat build`；针对边界可执行 `test --tests '*IdLiteralBudgetTest' --tests '*IdBlankCardsTest'`。CI 另检查重混淆发布 JAR、展开元数据和唯一内嵌依赖。
+
+已做离线 CLI 编译／错误路径与 ToolManager 烟测，含 512 个静态元素压成两张卡；槽位分配有小状态穷举 oracle；深 JSON 在序列化前返回 `E_LIMIT`。普通测试 JVM 缺少 Forge 的变换／注册环境，不能据此声称原生世界制卡成功。游戏内需手动验证实际空白卡消耗、handler 事件、依赖入库、输出接线、断网／权限变化、Proxy/Delay 和多人会话；本轮不启动游戏或代替用户接受 EULA。
+

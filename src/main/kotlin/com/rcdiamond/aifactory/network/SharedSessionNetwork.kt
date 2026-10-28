@@ -42,7 +42,7 @@ import net.minecraftforge.network.simple.SimpleChannel
  */
 object SharedSessionNetwork {
     /** Exact-match protocol version. Changing the wire format means changing this string. */
-    const val PROTOCOL_VERSION: String = "6"
+    const val PROTOCOL_VERSION: String = "7"
 
     /** Largest payload carried by one chunk. */
     const val MAX_CHUNK_BYTES: Int = 24 * 1024

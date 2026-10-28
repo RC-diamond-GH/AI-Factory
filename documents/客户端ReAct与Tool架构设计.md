@@ -2,7 +2,7 @@
 
 ## 1. 范围与依赖约束
 
-核心实现包含客户端流式 ReAct、可注册 Tool、普通 G 键聊天的 `give_item` / `execute_command`、服务端游戏机制、聊天界面与 TOML 配置。可选 AE2 集成另有智能元件、联网终端与五项 ME Tool；可选 Integrated Dynamics 集成有独立完整终端方块与三项只读网络 Tool。ME／ID 助手均不注册给予物品或命令工具；JEI 只加入普通／ME Agent。会话恢复使用当前注册的 Tool Schema。上下文编码与租约规则可复用，但 ID 的存储和租约实例独立于 ME。详见 [AE2 智能存储交付说明](./AE2智能存储拓展交付说明.md)及[开发记录的 ID 章节](./开发与踩坑记录.md#9-integrated-dynamics-独立终端与只读-agent)。
+核心实现包含客户端流式 ReAct、可注册 Tool、普通 G 键聊天的 `give_item` / `execute_command`、服务端游戏机制、聊天界面与 TOML 配置。可选 AE2 集成另有智能元件、联网终端与五项 ME Tool；可选 Integrated Dynamics 集成有独立终端、三项只读网络 Tool 及 `id_compile`／`id_make_cards`。ME／ID 助手均不注册给予物品或命令工具；JEI 只加入普通／ME Agent。ID DSL 只生成原生卡片，不自动接线／执行物流。会话恢复使用当前注册的 Tool Schema；上下文编码与租约规则可复用，但 ID 的存储和租约实例独立于 ME。详见 [AE2 智能存储交付说明](./AE2智能存储拓展交付说明.md)、[ID DSL 设计](./IntegratedDynamicsDSL设计.md)及[开发记录的 ID 章节](./开发与踩坑记录.md#10-共享解释器id-dsl-与原生制卡)。
 
 - 数据模式和抽象能力定义在 `com.rcdiamond.aifactory.client.llm`；Agent、Tool 和游戏网络消息使用这些模式，不依赖 OpenAI wire format。
 - LLM API 请求、Agent 决策、Tool 定义与参数策略全部运行在客户端。
@@ -32,13 +32,19 @@
 | `client.ClientModEvents` / `ClientGameEvents` | 客户端 | `Dist.CLIENT` 隔离的按键、客户端 tick、响应与断线订阅 |
 | `AIFactory` | 两端入口 | 公共初始化时通过 `enqueueWork` 注册网络；不初始化客户端 Agent 或发起模型请求 |
 | `shared.*` | 共享纯规则 / 服务端 | 上下文编码、哈希、容量、世界存档、独占锁与服务端会话校验；无 AE2 类型 |
-| `network.SharedSessionNetwork` | 两端 | 有界分片 RPC 与终端打开事件；协议版本 `"6"`；独立端点共享传输，不共享存储或授权 |
+| `network.SharedSessionNetwork` | 两端 | 有界分片 RPC 与终端打开事件；协议版本 `"7"`；独立端点共享传输，不共享存储或授权 |
 | `client.shared.SharedAgentSessionRuntime` / `SharedAgentProfile` | 客户端 | 每个组合入口独立实例：UUID／哈希缓存、保存确认、后台回合、当前工具 Schema 与无工具自动标题请求 |
 | `client.shared.*` 界面与 HUD | 客户端 | 注入对应运行实例；ME 显示真实元件，ID 显示终端会话而不伪造 ME 元件 |
 | `addon.ae2.*` | 可选集成 | 元件与终端注册、网格授权、库存 / NBT 详情 / 异步合成计划与请求 / 样板容器视图、编码与投放 |
-| `addon.ae2.integrated_dynamics.*` | 可选 ID 集成 | 原生线缆网络成员、终端／引用持久化、独立会话服务、三项只读网络检查；无 AE2 API 依赖 |
+| `addon.ae2.integrated_dynamics.*` | 可选 ID 集成 | 原生线缆网络成员、终端／引用持久化、独立会话；只读检查、客户端 DSL 编译与服务端原生制卡；无 AE2 API 依赖 |
 | `addon.jei.client.tool.*` / `JeiQueryGateway` | 客户端，纯契约 | 材料搜索／配方查询 Schema、参数校验和可替换查询后端；无 JEI API 类型 |
 | `addon.jei.client.integration.*` | 可选 JEI 客户端集成 | JEI 插件发现、runtime 生命周期、公开 API 查询、有界材料引用及展示槽位转换 |
+| `lang.*` | 共享纯 Kotlin 模块 | 类 Haskell 词法／语法、类型合同、依赖图、源码诊断与可扩展后端；不持有 Minecraft、ID 或客户端对象 |
+| `addon.ae2.integrated_dynamics.dsl.*` | 共享纯合同／客户端编译 | 固定原语类型目录、原生卡片 DAG、有限性与源映射；服务端只复用计划／类型验证，不解析源码 |
+
+ID 的 `id_compile` 仅预览；`id_make_cards` 在客户端重新编译后，经现有独占会话发送结构化计划。服务端重新解析网络输入、检查计划和真实资源，然后消耗玩家主背包中的空白变量卡，以 ID 原生 facade／handler 创建卡片。所有依赖卡及输出卡的放置由用户完成；制卡不等于网络已能解析卡片或自动化已经执行。完整语言与工具合同见 [DSL 设计](IntegratedDynamicsDSL设计.md) 和 [使用指南](IntegratedDynamicsDSL使用指南.md)。
+
+“服务端不解释 DSL”指制卡机制请求不含源码／AST／sourceMap；共享会话保存的 ToolCall 参数仍可能包含源码文本，服务端只将其作为不透明上下文持久化，不解析或执行。这不改变现有对话隐私与存储容量合同。
 
 ## 3. 决策与执行路径
 
