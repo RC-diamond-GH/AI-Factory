@@ -646,7 +646,7 @@ internal object IdNativeBackend {
                 "Use an operator published by the current id_describe_inputs/contract.",
             )
         }
-        IdNativeCatalog.operator(id)
+        IdNativeCatalog.operatorById(id)
     } catch (error: IdNativeContractError) {
         throw IdBackendError.validate(error.code, error.message ?: "unknown native operator", node = node, hint = error.hint)
     }

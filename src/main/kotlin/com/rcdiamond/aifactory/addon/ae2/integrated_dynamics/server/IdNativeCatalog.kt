@@ -97,7 +97,7 @@ internal object IdNativeCatalog {
     fun finiteOf(value: ValueTypeList.ValueList<*, *>): IdFiniteness = finiteOf(value.rawValue)
 
     /** Resolves a plan/registry operator id. The id must be the exact registered canonical name. */
-    fun operator(id: String): IOperator {
+    fun operatorById(id: String): IOperator {
         val name = ResourceLocation.tryParse(id)
             ?: throw IdNativeContractError(IdDiagnosticCode.E_NATIVE_CONTRACT, "operator '$id' is not a valid resource id")
         if (name.toString() != id) {
