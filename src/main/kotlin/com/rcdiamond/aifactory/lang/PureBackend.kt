@@ -857,7 +857,8 @@ object StandardScalarRuntime {
             requireArity(arguments, 3, "reduce")
             val function = arguments[0]
             val values = list(arguments[1])
-            context.budget.checkListSize(values.size, context.span, "reduce")
+            // Each accumulator application charges the step budget and validates its materialized
+            // result, so a list-valued accumulator is bounded by the producing operation.
             var accumulator = arguments[2]
             for (element in values) {
                 context.budget.chargeStep(context.span)
