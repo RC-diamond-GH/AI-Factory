@@ -104,10 +104,16 @@ Commands can affect the world and other players. Closing the regular chat cancel
 | `id_network_info` | Native cable, element, part and resolvable-variable counts, consumption and ingredient components. |
 | `id_list_parts` | Page through loaded parts: IDs, types, channels, positions and actual target faces. |
 | `id_list_variables` | Inspect resolvable definitions in Variable Stores and active part slots, including types and operator/aspect/proxy/delay references. |
+| `id_compile` | Preview a typed Haskell-like DSL as a native card graph, with output types, blank-card count and located diagnostics. No cards or IDs are created. |
+| `id_make_cards` | Recompile and create native variable cards in the main inventory, consuming truly blank cards after server-side validation. |
 
-Listings accept `filter`, zero-based `page`, and `page_size` (1–100, default 20). Pagination is live, not a frozen snapshot; inspection does not force-load chunks. A variable's `valid` flag is only the native facade's basic validity, not successful dependency/type validation or evaluation. These tools do not read constant contents or live values, create/edit cards, compile DSL, change logistics or inventories, or expose ME, item-grant, command or JEI tools.
+Listings accept `filter`, zero-based `page`, and `page_size` (1–100, default 20). Pagination is live, not a frozen snapshot; inspection does not force-load chunks. A variable's `valid` flag is only the native facade's basic validity, not successful dependency/type validation or evaluation. Input typing reads definition metadata, not live values.
 
-ID conversations support background turns and a HUD. The server checks the lease, terminal identity, references, dimension, loaded state and interaction permission. Initial access requires an eight-block range; leased background work only relaxes distance. Builds, standalone session smoke checks and AE2-free linkage do not verify actual network merging/splitting, wireless links, break/replacement, rendering or multiplayer behavior.
+For DSL programs, use `input name : Type;`, `let name = expression;`, and `output port = expression;`, with explicit variable/aspect bindings. The compiler supports typed lists, partial application, composition, conditionals and a pinned native operator catalog—not full Haskell, recursion or arbitrary scripts. Preview first; request creation explicitly. `id_make_cards` uses the 36 main-inventory slots, never overwrites existing cards, and does not deploy cards or configure logistics. Put all dependency cards into the same network's Variable Stores and install outputs manually. Creation failures report phase, node/input, source location when available and partial results; completed writes are not rolled back.
+
+See the [DSL user guide](documents/IntegratedDynamicsDSL使用指南.md), [language/wire/backend design](documents/IntegratedDynamicsDSL设计.md) and [shared interpreter API](documents/共享类Haskell解释器.md). Source stays out of the card-creation RPC and card NBT, but may still be stored in world-backed conversation history and sent to the configured LLM provider. Both ends require shared-session protocol **7**.
+
+ID conversations support background turns and a HUD. The server checks the lease, terminal identity, references, dimension, loaded state and interaction permission. Initial access requires an eight-block range; leased background work only relaxes distance. Offline compilation, tool/error-path smoke checks and packaging do not verify actual card creation, network evaluation, merging/splitting, wireless links, rendering or multiplayer behavior. Game-side acceptance remains required.
 
 
 ### Recipe queries — optional JEI integration

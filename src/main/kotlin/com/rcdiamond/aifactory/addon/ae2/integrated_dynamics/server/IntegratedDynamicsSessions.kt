@@ -9,6 +9,7 @@ import com.rcdiamond.aifactory.shared.requireString
 import com.rcdiamond.aifactory.shared.requireUuid
 import com.rcdiamond.aifactory.shared.stringOrNull
 import java.util.UUID
+import kotlin.jvm.optionals.getOrNull
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonObjectBuilder
@@ -24,6 +25,9 @@ import net.minecraft.server.level.ServerPlayer
 import net.minecraftforge.common.MinecraftForge
 import net.minecraftforge.event.entity.player.PlayerEvent
 import net.minecraftforge.event.server.ServerStoppedEvent
+import org.cyclops.integrateddynamics.api.network.INetwork
+import org.cyclops.integrateddynamics.api.network.IPartNetwork
+import org.cyclops.integrateddynamics.core.helper.NetworkHelpers
 
 /** ID owns separate stores and leases. Only the bounded transport and context format are shared with ME. */
 object IntegratedDynamicsSessions {
@@ -125,11 +129,22 @@ object IntegratedDynamicsSessions {
                     require(tool in IntegratedDynamicsToolLimits.OPERATIONS) { "Unknown Integrated Dynamics tool '$tool'" }
                     val arguments = payload["arguments"] as? JsonObject
                         ?: throw IllegalArgumentException("Field 'arguments' must be an object")
-                    IntegratedDynamicsNetworkAccess.inspect(terminal.resolve(player, true), tool, arguments)
+                    val network = terminal.resolve(player, true)
+                    when (tool) {
+                        IntegratedDynamicsToolLimits.OPERATION_DESCRIBE_INPUTS ->
+                            IdNativeBackend.describe(partNetwork(network), serverLevel(terminal), arguments)
+                        IntegratedDynamicsToolLimits.OPERATION_CREATE_CARDS ->
+                            IdNativeBackend.create(player, partNetwork(network), serverLevel(terminal), arguments)
+                        else -> IntegratedDynamicsNetworkAccess.inspect(network, tool, arguments)
+                    }
                 }
                 else -> throw IllegalArgumentException("Unknown Integrated Dynamics session operation '$operation'")
             }
             reply(response)
+        } catch (rejected: IdBackendError) {
+            // Preserve phase/code/node/input and any cards that were already placed; a plain
+            // IllegalArgumentException reply would lose exactly the information needed to recover.
+            reply(rejected.toJson())
         } catch (rejected: IllegalArgumentException) {
             reply(buildJsonObject { put("ok", false); put("error", rejected.message ?: "The request was rejected") })
         } catch (failure: Exception) {
@@ -137,6 +152,15 @@ object IntegratedDynamicsSessions {
             reply(buildJsonObject { put("ok", false); put("error", "The Integrated Dynamics request could not be completed") })
         }
     }
+
+    /** The terminal's own authorized network must be part-network capable for aspect/variable access. */
+    private fun partNetwork(network: INetwork): IPartNetwork =
+        NetworkHelpers.getPartNetwork(network).resolve().getOrNull()
+            ?: throw IllegalArgumentException("This Integrated Dynamics network has no part network")
+
+    private fun serverLevel(terminal: IntegratedDynamicsTerminalBlockEntity): ServerLevel =
+        terminal.level as? ServerLevel
+            ?: throw IllegalArgumentException("The Integrated Dynamics terminal is not in a server level")
 
     private fun requireLease(player: ServerPlayer, id: UUID): SharedSessionLease {
         val lease = leases.leaseFor(player.uuid)

@@ -4,6 +4,7 @@ import com.rcdiamond.aifactory.client.llm.ChatEntry
 import com.rcdiamond.aifactory.client.llm.ChatMessage
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
@@ -47,6 +48,8 @@ object ToolUseSummary {
     private const val TOOL_ID_NETWORK_INFO = "id_network_info"
     private const val TOOL_ID_LIST_PARTS = "id_list_parts"
     private const val TOOL_ID_LIST_VARIABLES = "id_list_variables"
+    private const val TOOL_ID_COMPILE = "id_compile"
+    private const val TOOL_ID_MAKE_CARDS = "id_make_cards"
 
     private const val ACTION_ENCODE_INSTALL = "encode_install"
 
@@ -92,6 +95,7 @@ object ToolUseSummary {
 
     private val WHITESPACE = Regex("\\s+")
     private val NO_ARGS = emptyArray<Any>()
+    private val DSL_PHASES = setOf("compile", "describe", "validate", "preflight", "create")
 
     /**
      * Status line for a call that is still running, e.g. for the placeholder entry the live runtimes
@@ -230,6 +234,14 @@ object ToolUseSummary {
             label,
             text,
         )
+        TOOL_ID_COMPILE -> text(
+            "ai_factory.tool.summary.id_compile",
+            arrayOf<Any>(label, reply.longOrNull("node_count") ?: 0L, reply.longOrNull("cards_required") ?: 0L),
+        )
+        TOOL_ID_MAKE_CARDS -> text(
+            "ai_factory.tool.summary.id_make_cards",
+            arrayOf<Any>(label, reply.longOrNull("created") ?: 0L),
+        )
         else -> text(KEY_SUMMARY_COMPLETED, arrayOf(label))
     }
 
@@ -264,6 +276,22 @@ object ToolUseSummary {
         reply: JsonObject,
         text: (String, Array<out Any>) -> String,
     ): String {
+        if (reply.stringOrNull("phase") in DSL_PHASES) {
+            val diagnostics = reply["diagnostics"] as? JsonArray
+            val diagnostic = (diagnostics?.firstOrNull {
+                (it as? JsonObject)?.stringOrNull("severity") == "error"
+            } ?: diagnostics?.firstOrNull()) as? JsonObject
+            val code = bounded(error ?: diagnostic?.stringOrNull("code")) ?: unknown(text)
+            val message = bounded(reply.stringOrNull("message") ?: diagnostic?.stringOrNull("message"))
+                ?: text(KEY_ERROR_OTHER, NO_ARGS)
+            val line = diagnostic?.longOrNull("line")
+            val column = diagnostic?.longOrNull("column")
+            return if (line != null && line > 0 && column != null && column > 0) {
+                text("ai_factory.tool.summary.id_error", arrayOf<Any>(label, code, line, column, message))
+            } else {
+                text("ai_factory.tool.summary.id_error_unlocated", arrayOf(label, code, message))
+            }
+        }
         val reason = when (error) {
             null -> text(KEY_ERROR_OTHER, NO_ARGS)
             "unknown_tool" -> text(KEY_ERROR_UNKNOWN_TOOL, NO_ARGS)
@@ -308,7 +336,8 @@ object ToolUseSummary {
             TOOL_READ_INVENTORY, TOOL_ITEM_DETAILS, TOOL_CRAFTING_PLAN, TOOL_REQUEST_CRAFTING,
             TOOL_MANAGE_PATTERNS, TOOL_GIVE_ITEM, TOOL_EXECUTE_COMMAND,
             TOOL_JEI_FIND_INGREDIENTS, TOOL_JEI_QUERY_RECIPES,
-            TOOL_ID_NETWORK_INFO, TOOL_ID_LIST_PARTS, TOOL_ID_LIST_VARIABLES -> "ai_factory.tool.name.$name"
+            TOOL_ID_NETWORK_INFO, TOOL_ID_LIST_PARTS, TOOL_ID_LIST_VARIABLES,
+            TOOL_ID_COMPILE, TOOL_ID_MAKE_CARDS -> "ai_factory.tool.name.$name"
             else -> null
         }
         if (key != null) return text(key, NO_ARGS)

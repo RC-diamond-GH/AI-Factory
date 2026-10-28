@@ -19,11 +19,22 @@ object IntegratedDynamicsToolLimits {
     /** Lists one bounded page of the network's variable cards and their definition references. */
     const val OPERATION_LIST_VARIABLES = "id_list_variables"
 
-    /** Every operation the server-side inspector accepts; anything else is rejected. */
+    /**
+     * Resolves input bindings to concrete, server-authoritative contracts. This never executes a
+     * variable and is safe to call before compiling.
+     */
+    const val OPERATION_DESCRIBE_INPUTS = "id_describe_inputs"
+
+    /** Creates real native variable cards from an already compiled, fully validated plan. */
+    const val OPERATION_CREATE_CARDS = "id_create_cards"
+
+    /** Every operation the session tool endpoint accepts; anything else is rejected. */
     val OPERATIONS: Set<String> = setOf(
         OPERATION_NETWORK_INFO,
         OPERATION_LIST_PARTS,
         OPERATION_LIST_VARIABLES,
+        OPERATION_DESCRIBE_INPUTS,
+        OPERATION_CREATE_CARDS,
     )
 
     /** Longest free-form filter text the model may send; matched case-insensitively by the server. */

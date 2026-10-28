@@ -120,7 +120,7 @@ sequenceDiagram
 
 保存目前在回合结束、清空、打开空闲会话或关闭空闲界面时发生，不为每个流式文本片段写世界存档。`save` 确认表示服务端内存中的 SavedData 已更新并标脏，真正落盘由 Minecraft 存档周期完成，不是同步 fsync 承诺。
 
-传输使用 `ai_factory:shared_session` 频道、精确版本 `"6"`；原 `game_action` 协议 `"2"` 不变。ME 终端定位仍为 `{dimension,x,y,z,side}`：坐标指线缆宿主，`side` 是终端安装面（六个小写方向名），不含面内旋转角。`delete {terminal,id,hash}` → `{ok}`；`create` 带 `autoTitle`，`list/open/save` 带服务端标题及自动命名状态，`save` 可附首个生成标题。`open` 即使正文哈希相同也返回最新标题。两侧必须同时更新，不能与共享协议 `"1"` 至 `"5"` 混用。分片 24 KiB，重组总上限 64 MiB，每连接最多 16 组且总在途正文不超过 64 MiB；拒绝乱序/超界，处理空闲过期并在退出时清理。普通 RPC 超时 30 秒，大上下文打开/保存超时 120 秒。
+传输使用 `ai_factory:shared_session` 频道、精确版本 `"7"`（增加 ID DSL 制卡机制）；原 `game_action` 协议 `"2"` 不变。ME 终端定位仍为 `{dimension,x,y,z,side}`：坐标指线缆宿主，`side` 是终端安装面（六个小写方向名），不含面内旋转角。`delete {terminal,id,hash}` → `{ok}`；`create` 带 `autoTitle`，`list/open/save` 带服务端标题及自动命名状态，`save` 可附首个生成标题。`open` 即使正文哈希相同也返回最新标题。两侧必须同时更新，不能与共享协议 `"1"` 至 `"6"` 混用。分片 24 KiB，重组总上限 64 MiB，每连接最多 16 组且总在途正文不超过 64 MiB；拒绝乱序/超界，处理空闲过期并在退出时清理。普通 RPC 超时 30 秒，大上下文打开/保存超时 120 秒。
 
 `ClientSharedSessionRuntime` 现为 ME 的组合入口，客户端保存／后台生命周期由 `SharedAgentSessionRuntime` 复用。ID 终端使用独立实例、`id_` 端点、世界存储和租约，不使用 ME 元件、网格授权或 ME Tool；本篇元件容量与挂载规则仅适用于 ME。协议升级不迁移或合并两类会话。
 
