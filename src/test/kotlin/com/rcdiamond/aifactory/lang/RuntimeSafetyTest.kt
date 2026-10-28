@@ -205,24 +205,21 @@ class RuntimeSafetyTest {
             "let inc = add 1;\noutput f : Fn(Integer) -> Integer = inc;",
         )
         val function = evaluated.function("f")
+        val eq = StandardScalarRuntime.primitives.getValue("eq")
 
-        assertFailsWith<PurePrimitiveException> { valuesEqual(function, function) }
+        assertFailsWith<PurePrimitiveException> { eq.invoke(listOf(function, function)) }
         assertFailsWith<PurePrimitiveException> {
-            ScalarOps.comparison(IrComparisonOperator.EQUAL, function, function)
-        }
-        assertFailsWith<PurePrimitiveException> {
-            valuesEqual(
-                PureValue.ListValue(listOf(function)),
-                PureValue.ListValue(listOf(function)),
+            eq.invoke(
+                listOf(
+                    PureValue.ListValue(listOf(function)),
+                    PureValue.ListValue(listOf(function)),
+                ),
             )
         }
 
-        assertTrue(
-            valuesEqual(
-                PureValue.ListValue(listOf(PureValue.IntegerValue(1), PureValue.IntegerValue(2))),
-                PureValue.ListValue(listOf(PureValue.IntegerValue(1), PureValue.IntegerValue(2))),
-            ),
-        )
+        val left = PureValue.ListValue(listOf(PureValue.IntegerValue(1), PureValue.IntegerValue(2)))
+        val right = PureValue.ListValue(listOf(PureValue.IntegerValue(1), PureValue.IntegerValue(2)))
+        assertEquals(PureValue.BooleanValue(true), eq.invoke(listOf(left, right)))
     }
 
     @Test
