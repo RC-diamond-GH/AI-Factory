@@ -36,6 +36,11 @@ internal class IdFacadeTypes(
     private val context: ValueDeseralizationContext,
 ) {
     private val maximumDepth = 32
+    private val maximumFacades = 4096
+    private val provenVariables = HashMap<Int, Proof>()
+    private var expandedFacades = 0
+
+    private class Proof(val typed: IdNativeTyped, val depth: Int)
 
     fun variable(id: Int, input: String? = null): IdNativeTyped =
         variable(id, LinkedHashSet(), LinkedHashSet(), 0, input)
@@ -53,6 +58,8 @@ internal class IdFacadeTypes(
             reject("variable id $id takes part in a reference cycle", input, "Break the cyclic Proxy/Delay reference.")
         }
         try {
+            // A proof checked nearer the depth limit is safe at shallower occurrences, not vice versa.
+            provenVariables[id]?.let { if (depth <= it.depth) return it.typed }
             if (!partNetwork.hasVariableFacade(id)) {
                 reject(
                     "variable id $id is not resolvable on this authorized network",
@@ -62,7 +69,7 @@ internal class IdFacadeTypes(
             }
             val facade = partNetwork.getVariableFacade(id)
                 ?: reject("variable id $id has no facade on this network", input)
-            return facade(facade, variables, proxies, depth, input)
+            return facade(facade, variables, proxies, depth, input).also { provenVariables[id] = Proof(it, depth) }
         } finally {
             variables.remove(id)
         }
@@ -75,6 +82,16 @@ internal class IdFacadeTypes(
         depth: Int,
         input: String?,
     ): IdNativeTyped {
+        if (depth > maximumDepth) reject("variable reference chain is too deep (limit $maximumDepth)", input)
+        if (expandedFacades >= maximumFacades) {
+            throw IdBackendError.describe(
+                IdDiagnosticCode.E_LIMIT,
+                "static type proof exceeds $maximumFacades facade expansions",
+                input = input,
+                hint = "Simplify the dependency graph or split the request into fewer bindings.",
+            )
+        }
+        expandedFacades++
         if (!facade.isValid) {
             reject("variable ${facade.id} is invalid or is a blank/dummy card", input)
         }

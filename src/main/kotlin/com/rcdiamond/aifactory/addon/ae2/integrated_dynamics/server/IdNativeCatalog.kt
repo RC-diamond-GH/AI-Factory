@@ -407,6 +407,9 @@ internal object IdNativeCatalog {
         if (result !is IdDslType.ListType) return IdFiniteness.FINITE
         return when {
             matches(operator, Operators.LIST_LAZYBUILT) -> IdFiniteness.INFINITE
+            matches(operator, Operators.GENERAL_IDENTITY) ||
+                matches(operator, Operators.GENERAL_CONSTANT) ->
+                arguments.getOrNull(0)?.finite ?: IdFiniteness.UNKNOWN
             matches(operator, Operators.OPERATOR_MAP) -> arguments.getOrNull(1)?.finite ?: IdFiniteness.UNKNOWN
             matches(operator, Operators.OPERATOR_FILTER) -> arguments.getOrNull(1)?.finite ?: IdFiniteness.UNKNOWN
             matches(operator, Operators.LIST_APPEND) -> arguments.getOrNull(0)?.finite ?: IdFiniteness.UNKNOWN

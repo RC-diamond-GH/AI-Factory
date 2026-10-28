@@ -84,6 +84,8 @@ describe 只读 facade/网络对象 metadata，不调用 `variable.getValue()`�
 4. **Operator 调用卡**：`getOperator()` + `getVariableIds()` 递归输入卡，按固定 operator 规则计算；不调用 `getVariable()/getType()`（那会走 conditional output，可能求值）。
 5. **Proxy/Delay**：按 `partNetwork.getProxy(proxyId)` 找到方块实体，读输入槽卡，递归静态类型；Delay 的元素类型来自输入槽卡，Proxy 的类型来自目标卡。检测循环；空槽/不可证明报错。
 
+证明只在一次请求内复用成功结果，不跨请求缓存世界状态；较浅位置的证明不会绕过后来路径的深度限制。无环图也有总展开额度，超过后返回 `E_LIMIT` 和拆分 bindings／简化依赖图的提示，不降级为猜测类型。具体额度见 §11。既有 `identity`／`constant` 调用卡继承第一个参数的列表有限性，不能把已知 infinite 变成 unknown。
+
 因此：**空 Delay、空 Proxy、未知扩展 List/Fn、把动态 Operator 当任意 Fn，都会在 describe 阶段失败**，不会在运行时“猜”。这是保守静态环境，不是所有在线书/扩展都自动支持。
 
 ### 2.4 常见输入的推荐绑定
@@ -334,9 +336,9 @@ output firstTen : [Integer] = slice naturals 0 10;
 | `E_NATIVE_CONTRACT` | operator/aspect 不存在、用显示名、可变签名 apply/apply0 当 native、扩展无固定合同 | 用注册 ID/普通应用/内建 `call0`；固定高阶 scheme 可以特化，扩展需显式合同 |
 | `E_INFINITE_CONSUMER` / `W_UNKNOWN_FINITENESS` | filter/reduce/itemCount 消费已知 infinite / 无法证明有限的列表 | 先 slice 到有限边界；绑定有限列表；不要依赖 map/slice 后的原生 isInfinite |
 | `E_LITERAL_RESOURCE` | Item/Block/Fluid ID 不存在，或 `item "minecraft:air"`／`fluid "minecraft:empty"` 产生空原型 | 修正资源；空值用 `emptyItem`/`emptyFluid`，Block 的 air 是合法默认状态 |
-| `E_LITERAL_RANGE` | Integer/Long 越界、Fluid 数量≤0、字面量索引／slice 边界不合法 | 修正范围、数量或索引；不把范围错误当作缺失资源 |
+| `E_LITERAL_RANGE` | Integer/Long 越界、Fluid 数量≤0、静态可判无效的 slice 边界 | 修正数值／数量；slice 要求 `0 <= from < to`，get/getOr 索引保留原生运行期语义 |
 | `E_LITERAL_NBT` | SNBT 语法错误、内部递归超限或尾随文本 | 修正 SNBT；递归预算 32，文本 8192 bytes 超限另报 `E_LIMIT` |
-| `E_LIMIT` | 源/节点/类型深度/输入输出/列表/字面量超限 | 拆分程序；减少输入/列表 |
+| `E_LIMIT` | 源/节点/类型/输入输出/列表/字面量或外部 facade 证明工作超限 | 拆分程序或 bindings；简化列表/依赖图 |
 | `E_TARGET_CONTRACT` / `E_TYPE` / `E_NATIVE_CONTRACT` / `E_INPUT_BINDING` | plan schema/ref/type/operator/contract 或 preflight/create 失败 | 重新 `id_compile`；检查空白卡/背包；不要手改 plan |
 | `E_TARGET_CONTRACT`（phase=preflight） | 空白卡不足或主背包放不下 | 清背包、准备足够空白卡；aspect import 也算卡 |
 | `E_TARGET_CONTRACT`（phase=create） | 写卡/背包/事件异常，或卡不是真正空白 | 检查已创建卡/ID；用无 NBT 空白卡；不要盲目整批重试 |
@@ -374,6 +376,7 @@ output firstTen : [Integer] = slice naturals 0 10;
 | outputs | 64 |
 | 单个字符串/NBT 字面量 | 8192 UTF-8 bytes |
 | SNBT 值递归深度（根值为 0） | 32 |
+| 既有 facade 证明引用深度（根为 0） / 每请求 facade 展开额度 | 32 / 4096 |
 | 列表字面量元素 | 256 |
 | 不同 value 卡的物化 JSON 节点合计 | 4096 |
 | 完整 plan UTF-8 bytes / 原始 JSON 物理深度 | 262144 / 64 |

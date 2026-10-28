@@ -312,6 +312,8 @@ output result : Boolean = sameItem emptyItem emptyItem;
 - Proxy/Delay 的列表：有限（Delay 队列容量有限），但元素类型仍需证明。
 - `unknown` 只来自无法静态证明的外部列表；不能用来绕过无限消费者检查。
 
+外部 facade 证明按请求创建解析器，在同一授权网络内按 variable id 记忆化成功结果，不缓存失败或跨请求世界状态。缓存只在当前剩余深度预算足够时复用，保留环与深度检查；Proxy/Delay 直接读槽的递归同样受深度和总展开额度约束。超出总额度报 `E_LIMIT`，不伪造 unknown；上限见 §10.4。
+
 ## 6. 表达式、字面量与值构造
 
 ### 6.1 优先级与结合性
@@ -459,6 +461,7 @@ output result : Boolean = sameItem emptyItem emptyItem;
 | `map f xs` | 继承 xs（即使原生 mapped proxy 的 isInfinite 丢标记） |
 | `filter p xs` | xs 为 infinite 时编译错误；否则继承 xs（unknown 保持 unknown） |
 | `append xs x` | 继承 xs |
+| `identity xs` / 完全应用的 `constant xs ignored`（包括既有调用卡） | 继承 xs |
 | `concat xs ys` | 任一 infinite → infinite；否则 finite，除非有 unknown |
 | `slice xs from to` | 边界为有限整数且 from<to → finite（即使 xs infinite；原生 slice 长度被 to 截断） |
 | `getOr`/`get`/`length`/`isEmpty` | 结果标量，不传播列表有限性 |
@@ -472,7 +475,7 @@ output result : Boolean = sameItem emptyItem emptyItem;
 - DSL 编译器对**静态 infinite** 输入报 `E_INFINITE_CONSUMER`（`filter`/`reduce`/`itemCount`）。
 - `unknown` 在预览/计划校验中给 `W_UNKNOWN_FINITENESS` warning，plan 仍可生成；不把 unknown 伪造为 finite。运行期原生 `filter/reduce/itemCount` 可能抛错；若底层是 `map` 产生的 lazy infinite，原生的 `isInfinite()` 传播缺口可能导致长时间遍历，需在 UI/文档提示这一风险，不承诺服务端能证明终止。
 - `length` 对 infinite 不做拒绝：原生返回 `Integer.MAX_VALUE`；`isEmpty` 返回 false。不要虚构“length 抛错”。
-- `slice` 字面量 `from >= to` 在编译期报 `E_LITERAL_RANGE`；动态边界只能在运行期由原生抛错。
+- `slice` 的已知 `from < 0`、`to <= 0`，或两个字面量 `from >= to` 在编译期报 `E_LITERAL_RANGE`；即使另一端动态，能静态证明不可能有效的边界仍拒绝。服务端同样检查直接 call 与可追溯到原生 slice 的 apply 链，不求值不透明输入函数。其他动态边界仍由运行期原生检查；get/getOr 索引不在此编译期限制中。
 - 不把原生 API 的 `getLength()==Integer.MAX_VALUE` 当作数学无穷；不重新定义原生 length/isEmpty。
 
 ### 8.3 状态与历史
@@ -734,6 +737,7 @@ Delay：
 | outputs | 64 |
 | 单个字符串/NBT 字面量 UTF-8 bytes | 8192 |
 | SNBT 值递归深度（根值为 0，Minecraft 解析前的结构预检） | 32 |
+| 既有 facade 证明引用深度（根为 0） / 每请求 facade 展开额度 | 32 / 4096 |
 | 列表字面量元素数 | 256 |
 | 所有不同 value 卡的物化 JSON 节点合计（对象／数组／标量均计 1，重复子树逐次计） | 4096 |
 | 完整 plan 编码 UTF-8 bytes | 262144 |
