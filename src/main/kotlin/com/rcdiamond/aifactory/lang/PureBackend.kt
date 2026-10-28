@@ -61,6 +61,9 @@ internal class EvaluationBudget(private val limits: EvaluationLimits) {
         }
     }
 
+    /** Initial accumulator capacity that can never exceed the element limit. */
+    fun listCapacity(size: Int): Int = minOf(size, limits.maxListElements)
+
     fun checkListSize(size: Int, span: SourceSpan, what: String) {
         if (size > limits.maxListElements) {
             limitFailure(
@@ -841,15 +844,17 @@ object StandardScalarRuntime {
             requireArity(arguments, 2, "filter")
             val predicate = arguments[0]
             val values = list(arguments[1])
-            // The result cannot be larger than the input, so this bounds the materialization
-            // before the output accumulator is allocated.
-            context.budget.checkListSize(values.size, context.span, "filter")
-            val elements = ArrayList<PureValue>(values.size)
+            val elements = ArrayList<PureValue>(context.budget.listCapacity(values.size))
             for (element in values) {
                 context.budget.chargeStep(context.span)
                 val result = applyPure(predicate, element, context.span) as? PureValue.BooleanValue
                     ?: throw PurePrimitiveException("filter predicate did not return Boolean")
-                if (result.value) elements.add(element)
+                if (result.value) {
+                    // A narrow result is legal even for a large input, but the output itself must
+                    // never pass the cap; fail before growing the accumulator.
+                    context.budget.checkListGrowth(elements.size, 1, context.span, "filter")
+                    elements.add(element)
+                }
             }
             PureValue.ListValue(elements)
         })
