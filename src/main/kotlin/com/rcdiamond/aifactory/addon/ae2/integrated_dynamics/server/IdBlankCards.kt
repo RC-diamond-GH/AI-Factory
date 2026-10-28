@@ -40,23 +40,50 @@ internal object IdBlankCards {
     /** Pure-ish preflight: reads the inventory but changes nothing when it fails. */
     fun plan(inventory: Inventory, needed: Int): Plan {
         if (needed == 0) return Plan(emptyMap(), emptyList())
+        val counts = IntArray(MAIN_SLOTS)
+        for (slot in counts.indices) {
+            val stack = inventory.getItem(slot)
+            counts[slot] = when {
+                stack.isEmpty -> 0
+                isBlank(stack) -> stack.count
+                else -> -1
+            }
+        }
+        return plan(counts, needed)
+    }
+
+    /** Slot snapshot: zero is empty, positive is a blank stack, negative is an occupied nonblank slot. */
+    fun plan(counts: IntArray, needed: Int): Plan {
+        require(counts.size == MAIN_SLOTS && needed >= 0) { "Invalid main-inventory allocation request" }
+        if (needed == 0) return Plan(emptyMap(), emptyList())
+        if (needed > MAIN_SLOTS) {
+            throw IdBackendError.preflight(
+                IdDiagnosticCode.E_TARGET_CONTRACT,
+                "the main inventory cannot hold $needed distinct cards in $MAIN_SLOTS slots",
+                hint = "Split the program into smaller card batches; no cards were consumed.",
+            )
+        }
 
         val singles = ArrayList<Int>()
         val multi = ArrayList<Int>()
-        val counts = LinkedHashMap<Int, Int>()
         val emptySlots = ArrayList<Int>()
-        var blanks = 0
+        var blanks = 0L
 
         for (slot in 0 until MAIN_SLOTS) {
-            val stack = inventory.getItem(slot)
-            if (stack.isEmpty) {
+            val count = counts[slot]
+            if (count == 0) {
                 emptySlots.add(slot)
-            } else if (isBlank(stack)) {
-                counts[slot] = stack.count
-                blanks += stack.count
-                if (stack.count == 1) singles.add(slot) else multi.add(slot)
+            } else if (count > 0) {
+                blanks += count
+                if (count == 1) {
+                    singles.add(slot)
+                } else {
+                    // Drain smaller stacks first; partial extraction must not strand a usable slot.
+                    var index = multi.size
+                    while (index > 0 && counts[multi[index - 1]] > count) index--
+                    multi.add(index, slot)
+                }
             }
-            // A tagged variable card (programmed, stale, labelled) is neither blank nor free.
         }
 
         if (blanks < needed) {
@@ -92,7 +119,7 @@ internal object IdBlankCards {
         // remainder, which must itself occupy a slot, so each produced card needs its own free slot.
         for (slot in multi) {
             if (remaining == 0) break
-            val count = counts.getValue(slot)
+            val count = counts[slot]
             val free = emptySlots.size - emptyCursor
             if (remaining >= count && free >= count - 1) {
                 outputSlots.add(slot)

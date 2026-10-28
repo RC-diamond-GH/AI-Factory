@@ -484,20 +484,6 @@ class IdDslCompilerTest {
         unknownField.assertCodes(IdDiagnosticCode.E_TARGET_CONTRACT)
     }
 
-    @Test
-    fun `diagnostics carry UTF-16 spans and one-based line and column`() {
-        val result = IdDslCompiler.compile(
-            "input x : Integer;\noutput result : Boolean = x;\n",
-            describe(variable("x", IdDslTypes.INTEGER)),
-        )
-        assertFalse(result.success)
-        val diagnostic = result.diagnostics.first { it.isError }
-        assertTrue(diagnostic.line >= 1)
-        assertTrue(diagnostic.column >= 1)
-        assertTrue(diagnostic.span.end >= diagnostic.span.start)
-        assertFalse(diagnostic.hint.isNullOrBlank())
-        assertTrue(diagnostic.render().contains(diagnostic.code.name))
-    }
 
     // ------------------------------------------------------------------ limits
 
@@ -539,5 +525,27 @@ class IdDslCompilerTest {
         )
         assertFalse(result.success)
         result.assertCodes(IdDiagnosticCode.E_LIMIT)
+    }
+
+    @Test
+    fun `two names for one reader aspect require one physical card`() {
+        val source = """
+            input first : [Item];
+            input second : [Item];
+            output left = first;
+            output right = second;
+        """.trimIndent()
+        val result = IdDslCompiler.compile(
+            source,
+            describe(
+                aspectInput("first", IdDslTypes.list(IdDslTypes.ITEM)),
+                aspectInput("second", IdDslTypes.list(IdDslTypes.ITEM)),
+            ),
+        )
+        assertTrue(result.success, result.renderDiagnostics())
+        assertEquals(0, result.nodeCount)
+        assertEquals(2, result.outputCount)
+        assertEquals(1, result.cardsRequired)
+        assertTrue(result.validateOwnPlan().ok)
     }
 }

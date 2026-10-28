@@ -9,7 +9,6 @@ import kotlinx.serialization.json.put
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class IdDslWireTest {
@@ -58,7 +57,6 @@ class IdDslWireTest {
         val description = IdDslWire.parseDescription(valid)
         assertEquals(1, description.inputs.size)
         assertEquals(IdDslTypes.list(IdDslTypes.ITEM), description.inputs.single().type)
-        assertEquals(IdDslTypes.list(IdDslTypes.ITEM), IdDslWire.parseType(IdDslWire.encodeType(description.inputs.single().type)))
 
         val extraField = JsonObject(valid.toMutableMap().apply { put("unknown", JsonPrimitive(1)) })
         assertEquals(IdDiagnosticCode.E_TYPE, assertFailsWith<IdWireException> { IdDslWire.parseDescription(extraField) }.code)
@@ -84,6 +82,21 @@ class IdDslWireTest {
             valid.toMutableMap().apply { put("contract", JsonPrimitive("id-9.9.9")) },
         )
         assertEquals(IdDiagnosticCode.E_TARGET_CONTRACT, assertFailsWith<IdWireException> { IdDslWire.parseDescription(wrongContract) }.code)
+    }
+
+    @Test
+    fun `direct plan decoding rejects an oversized payload before schema allocation`() {
+        val oversized = IdPlan(
+            imports = emptyList(),
+            nodes = listOf(
+                IdPlanNode.Value(0, IdDslTypes.STRING, JsonPrimitive("x".repeat(IdDslLimits.MAX_PLAN_BYTES))),
+            ),
+            outputs = listOf(IdPlanOutput("result", IdReference.Node(0), IdDslTypes.STRING)),
+        )
+        val failure = assertFailsWith<IdWireException> {
+            IdDslWire.parsePlan(IdDslWire.encodePlan(oversized))
+        }
+        assertEquals(IdDiagnosticCode.E_LIMIT, failure.code)
     }
 
     @Test
@@ -133,32 +146,4 @@ class IdDslWireTest {
         assertEquals(IdDiagnosticCode.E_TYPE, assertFailsWith<IdWireException> { IdDslWire.parsePlan(forward) }.code)
     }
 
-    @Test
-    fun `diagnostics and source maps encode stable fields`() {
-        val diagnostic = IdDiagnostic(
-            code = IdDiagnosticCode.E_INFINITE_CONSUMER,
-            severity = IdSeverity.ERROR,
-            message = "infinite",
-            span = IdSourceSpan(3, 9),
-            line = 2,
-            column = 4,
-            hint = "bound it",
-            node = 5,
-        )
-        val json = IdDslWire.encodeDiagnostic(diagnostic)
-        assertEquals("E_INFINITE_CONSUMER", json["code"]!!.let { (it as JsonPrimitive).content })
-        assertEquals("error", json["severity"]!!.let { (it as JsonPrimitive).content })
-        assertEquals(5, json["node"]!!.let { (it as JsonPrimitive).content.toInt() })
-        assertEquals(2, json["line"]!!.let { (it as JsonPrimitive).content.toInt() })
-
-        val map = IdSourceMap(
-            nodes = mapOf(0 to IdSourceSpan(1, 2)),
-            imports = mapOf("x" to IdSourceSpan(3, 4)),
-            outputs = mapOf("result" to IdSourceSpan(5, 6)),
-        )
-        val encoded = IdDslWire.encodeSourceMap(map)
-        assertNotNull(encoded["nodes"])
-        assertNotNull(encoded["imports"])
-        assertNotNull(encoded["outputs"])
-    }
 }

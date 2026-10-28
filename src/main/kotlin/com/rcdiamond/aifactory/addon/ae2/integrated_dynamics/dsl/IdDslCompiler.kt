@@ -41,11 +41,17 @@ data class IdCompileResult(
 
     val nodeCount: Int get() = typedPlan?.nodes?.size ?: 0
 
-    /** New physical cards: one per definition plus one per aspect import; variable imports reuse ids. */
+    /** New definitions and distinct aspect cards; aliases of existing variables need no new card. */
     val cardsRequired: Int
-        get() = typedPlan?.let { plan ->
-            plan.nodes.size + plan.imports.count { it.binding is IdBinding.Aspect }
-        } ?: 0
+        get() {
+            val plan = typedPlan ?: return 0
+            val aspects = HashSet<IdBinding.Aspect>()
+            for (input in plan.imports) {
+                val binding = input.binding
+                if (binding is IdBinding.Aspect) aspects.add(binding)
+            }
+            return plan.nodes.size + aspects.size
+        }
 
     val outputCount: Int get() = typedPlan?.outputs?.size ?: 0
 
@@ -71,7 +77,7 @@ object IdDslCompiler {
         maxTypeDepth = IdDslLimits.MAX_TYPE_DEPTH,
         maxListLength = IdDslLimits.MAX_LIST_LENGTH,
         maxStringLength = IdDslLimits.MAX_LITERAL_TEXT_BYTES,
-        maxNodes = IdDslLimits.MAX_NODES * 2,
+        maxNodes = IdDslLimits.MAX_TYPED_NODES,
         maxDependencyDepth = 512,
         maxDiagnostics = IdDslLimits.MAX_DIAGNOSTICS,
     )
@@ -475,7 +481,7 @@ object IdDslCompiler {
 
     internal fun hintFor(code: IdDiagnosticCode): String? = when (code) {
         IdDiagnosticCode.E_TYPE ->
-            "Numeric types do not widen implicitly; use a matching literal (for example 1000L) or an explicit cast."
+            "Match operand, branch and annotation types; use explicit numeric casts or an L suffix when needed. Functions have no value equality."
         IdDiagnosticCode.E_UNRESOLVED_TYPE ->
             "Add a concrete annotation or use the value in a context that determines every type variable."
         IdDiagnosticCode.E_CYCLE ->
@@ -531,7 +537,7 @@ private class IdPlanBuilder(
     private val graph = module.graph
     private val nodes = ArrayList<IdPlanNode>()
     private val sourceNodes = LinkedHashMap<Int, IdSourceSpan>()
-    private val valueNodes = LinkedHashMap<String, IdReference>()
+    private val valueNodes = LinkedHashMap<LiteralKey, IdReference>()
     private val memo = arrayOfNulls<IdReference>(graph.nodes.size)
     private val staticComputed = BooleanArray(graph.nodes.size)
     private val staticValues = arrayOfNulls<JsonElement>(graph.nodes.size)
@@ -539,6 +545,8 @@ private class IdPlanBuilder(
     private var valueBytes = 0L
 
     data class Built(val plan: IdPlan, val sourceMap: IdSourceMap)
+
+    private data class LiteralKey(val type: IdDslType, val value: JsonElement)
 
     fun build(): Built {
         val declaredInputs = module.program.declarations.filterIsInstance<InputDeclaration>()
@@ -1043,12 +1051,11 @@ private class IdPlanBuilder(
     }
 
     private fun checkText(text: String, span: SourceSpan) {
-        val bytes = text.toByteArray(Charsets.UTF_8).size
-        if (bytes > IdDslLimits.MAX_LITERAL_TEXT_BYTES) {
+        if (utf8ByteLength(text, IdDslLimits.MAX_LITERAL_TEXT_BYTES) > IdDslLimits.MAX_LITERAL_TEXT_BYTES) {
             throw fail(
                 IdDiagnosticCode.E_LIMIT,
                 span,
-                "literal text is $bytes bytes; the limit is ${IdDslLimits.MAX_LITERAL_TEXT_BYTES}",
+                "literal text exceeds ${IdDslLimits.MAX_LITERAL_TEXT_BYTES} UTF-8 bytes",
             )
         }
     }
@@ -1059,8 +1066,8 @@ private class IdPlanBuilder(
         val measurement = try {
             IdDslValueBudget.measure(
                 value,
-                remainingNodes = IdDslLimits.MAX_VALUE_JSON_NODES - valueJsonNodes,
-                remainingBytes = IdDslLimits.MAX_PLAN_BYTES - valueBytes,
+                remainingNodes = IdDslLimits.MAX_VALUE_JSON_NODES,
+                remainingBytes = IdDslLimits.MAX_PLAN_BYTES.toLong(),
             )
         } catch (failure: IdValueBudgetExceeded) {
             throw fail(
@@ -1069,11 +1076,16 @@ private class IdPlanBuilder(
                 failure.message ?: "plan value budget exceeded",
             )
         }
-        val key = type.display() + "\u0000" + value.toString()
+        val key = LiteralKey(type, value)
         valueNodes[key]?.let { return it }
+        if (measurement.nodes > IdDslLimits.MAX_VALUE_JSON_NODES - valueJsonNodes ||
+            measurement.bytes > IdDslLimits.MAX_PLAN_BYTES - valueBytes
+        ) {
+            throw fail(IdDiagnosticCode.E_LIMIT, span, "distinct plan values exceed the materialized JSON budget")
+        }
+        ensureNodeCapacity(span)
         valueJsonNodes += measurement.nodes
         valueBytes += measurement.bytes
-        ensureNodeCapacity(span)
         val id = nodes.size
         nodes += IdPlanNode.Value(id, type, value)
         sourceNodes[id] = span.toIdSpan()

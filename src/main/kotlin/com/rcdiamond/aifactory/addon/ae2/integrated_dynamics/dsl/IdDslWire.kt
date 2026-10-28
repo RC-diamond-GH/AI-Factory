@@ -23,8 +23,8 @@ class IdWireException(
  * Exact JSON codec for the frozen ID DSL wire.
  *
  * This is pure: it never resolves a binding, a resource or an operator, and it never parses DSL
- * source. [parsePlan] checks shape, types, limits and local topology; signature and literal semantic
- * checks live in [IdPlanValidator] so a server can run both independently.
+ * source. [parsePlan] bounds raw JSON before decoding shape, types and local topology; signature and
+ * literal semantic checks live in [IdPlanValidator] so a server can run both independently.
  */
 object IdDslWire {
     private val IDENTIFIER = Regex("[A-Za-z_][A-Za-z0-9_]*")
@@ -263,6 +263,19 @@ object IdDslWire {
     }
 
     fun parsePlan(json: JsonObject): IdPlan {
+        try {
+            IdDslValueBudget.measure(
+                json,
+                remainingNodes = 100_000,
+                remainingBytes = IdDslLimits.MAX_PLAN_BYTES.toLong(),
+                maxDepth = IdDslLimits.MAX_PLAN_JSON_DEPTH,
+            )
+        } catch (failure: IdValueBudgetExceeded) {
+            throw IdWireException(
+                IdDiagnosticCode.E_LIMIT,
+                failure.message,
+            )
+        }
         requireFields(json, setOf("version", "contract", "imports", "nodes", "outputs"), "plan")
         val version = integerField(json, "version")
         if (version != 1) throw IdWireException(IdDiagnosticCode.E_TARGET_CONTRACT, "unsupported plan version $version")

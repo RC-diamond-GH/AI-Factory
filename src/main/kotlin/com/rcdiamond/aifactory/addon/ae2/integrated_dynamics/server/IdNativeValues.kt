@@ -3,6 +3,7 @@ package com.rcdiamond.aifactory.addon.ae2.integrated_dynamics.server
 import com.rcdiamond.aifactory.addon.ae2.integrated_dynamics.dsl.IdDiagnosticCode
 import com.rcdiamond.aifactory.addon.ae2.integrated_dynamics.dsl.IdDslType
 import com.rcdiamond.aifactory.addon.ae2.integrated_dynamics.dsl.IdDslTypes
+import com.rcdiamond.aifactory.lang.utf8ByteLength
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -30,7 +31,6 @@ import org.cyclops.integrateddynamics.core.evaluate.variable.ValueTypeLong
 import org.cyclops.integrateddynamics.core.evaluate.variable.ValueTypeNbt
 import org.cyclops.integrateddynamics.core.evaluate.variable.ValueTypeString
 import com.mojang.brigadier.StringReader
-import java.nio.charset.StandardCharsets
 
 /**
  * Exact conversion of a plan's `value` node JSON into a real Integrated Dynamics value.
@@ -85,10 +85,15 @@ internal object IdNativeValues {
         }
         "NBT" -> {
             val text = string(json, node, "NBT")
+            val reader = StringReader(text)
             val tag = try {
-                TagParser(StringReader(text)).readValue()
+                TagParser(reader).readValue()
             } catch (_: Exception) {
                 reject(node, IdDiagnosticCode.E_LITERAL_NBT, "NBT literal is not valid SNBT")
+            }
+            reader.skipWhitespace()
+            if (reader.canRead()) {
+                reject(node, IdDiagnosticCode.E_LITERAL_NBT, "NBT literal contains trailing text")
             }
             ValueTypeNbt.ValueNbt.of(tag)
         }
@@ -97,6 +102,9 @@ internal object IdNativeValues {
                 ValueObjectTypeItemStack.ValueItemStack.of(ItemStack.EMPTY)
             } else {
                 val resource = resource(json, node)
+                if (!ForgeRegistries.ITEMS.containsKey(resource)) {
+                    reject(node, IdDiagnosticCode.E_LITERAL_RESOURCE, "item '$resource' is not registered")
+                }
                 val item = ForgeRegistries.ITEMS.getValue(resource)
                     ?: reject(node, IdDiagnosticCode.E_LITERAL_RESOURCE, "item '$resource' is not registered")
                 val stack = ItemStack(item)
@@ -115,6 +123,9 @@ internal object IdNativeValues {
                 reject(node, IdDiagnosticCode.E_LITERAL_RESOURCE, "Block has no empty literal; give a block resource")
             }
             val resource = resource(json, node)
+            if (!ForgeRegistries.BLOCKS.containsKey(resource)) {
+                reject(node, IdDiagnosticCode.E_LITERAL_RESOURCE, "block '$resource' is not registered")
+            }
             val block = ForgeRegistries.BLOCKS.getValue(resource)
                 ?: reject(node, IdDiagnosticCode.E_LITERAL_RESOURCE, "block '$resource' is not registered")
             ValueObjectTypeBlock.ValueBlock.of(block.defaultBlockState())
@@ -131,9 +142,20 @@ internal object IdNativeValues {
                 if (amount <= 0) {
                     reject(node, IdDiagnosticCode.E_LITERAL_RANGE, "Fluid amount must be positive")
                 }
+                if (!ForgeRegistries.FLUIDS.containsKey(resource)) {
+                    reject(node, IdDiagnosticCode.E_LITERAL_RESOURCE, "fluid '$resource' is not registered")
+                }
                 val fluid = ForgeRegistries.FLUIDS.getValue(resource)
                     ?: reject(node, IdDiagnosticCode.E_LITERAL_RESOURCE, "fluid '$resource' is not registered")
-                ValueObjectTypeFluidStack.ValueFluidStack.of(FluidStack(fluid, amount))
+                val stack = FluidStack(fluid, amount)
+                if (stack.isEmpty) {
+                    reject(
+                        node,
+                        IdDiagnosticCode.E_LITERAL_RESOURCE,
+                        "fluid '$resource' resolves to an empty stack; use the explicit emptyFluid value",
+                    )
+                }
+                ValueObjectTypeFluidStack.ValueFluidStack.of(stack)
             }
         }
         "Entity" -> reject(
@@ -179,7 +201,7 @@ internal object IdNativeValues {
     private fun parseResource(value: JsonElement?, node: Int, label: String): ResourceLocation {
         val text = (value as? JsonPrimitive)?.takeIf { it.isString }?.content
             ?: reject(node, IdDiagnosticCode.E_LITERAL_RESOURCE, "$label must be a resource-id string")
-        if (text.toByteArray(StandardCharsets.UTF_8).size > IdNativeCatalog.MAX_LITERAL_BYTES) {
+        if (utf8ByteLength(text, IdNativeCatalog.MAX_LITERAL_BYTES) > IdNativeCatalog.MAX_LITERAL_BYTES) {
             reject(node, IdDiagnosticCode.E_LIMIT, "$label is too long")
         }
         if ('!' in text || ':' !in text) {
@@ -192,7 +214,7 @@ internal object IdNativeValues {
     private fun string(json: JsonElement, node: Int, label: String): String {
         val text = (json as? JsonPrimitive)?.takeIf { it.isString }?.content
             ?: reject(node, IdDiagnosticCode.E_TYPE, "$label literal must be a string")
-        if (text.toByteArray(StandardCharsets.UTF_8).size > IdNativeCatalog.MAX_LITERAL_BYTES) {
+        if (utf8ByteLength(text, IdNativeCatalog.MAX_LITERAL_BYTES) > IdNativeCatalog.MAX_LITERAL_BYTES) {
             reject(
                 node,
                 IdDiagnosticCode.E_LIMIT,

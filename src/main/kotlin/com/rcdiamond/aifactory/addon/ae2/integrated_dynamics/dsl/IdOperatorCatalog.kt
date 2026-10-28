@@ -409,7 +409,11 @@ object IdOperatorCatalog {
 
     private fun equality(): TypeScheme {
         val a = variable(0)
-        return TypeScheme(LangTypes.function(a, a, result = LangTypes.BOOLEAN), setOf(0))
+        return TypeScheme(
+            LangTypes.function(a, a, result = LangTypes.BOOLEAN),
+            setOf(0),
+            listOf(com.rcdiamond.aifactory.lang.SchemeConstraint(0, TypeConstraint.Equatable)),
+        )
     }
 
     private fun booleanBinary(): TypeScheme =

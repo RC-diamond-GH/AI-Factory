@@ -224,7 +224,11 @@ internal object IdNativeCatalog {
         TypeConstraint.Numeric -> type is IdDslType.Scalar && type.name in NUMERIC
         TypeConstraint.Concat ->
             (type is IdDslType.Scalar && type.name == "String") || type is IdDslType.ListType
-        TypeConstraint.Equatable -> type !is IdDslType.FunctionType
+        TypeConstraint.Equatable -> when (type) {
+            is IdDslType.Scalar -> true
+            is IdDslType.ListType -> constraintAccepts(constraint, type.element)
+            is IdDslType.FunctionType -> false
+        }
         is TypeConstraint.Named -> false
     }
 

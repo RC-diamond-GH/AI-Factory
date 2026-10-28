@@ -1,6 +1,5 @@
 package com.rcdiamond.aifactory.addon.ae2.integrated_dynamics.dsl
 
-import com.rcdiamond.aifactory.lang.utf8ByteLength
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -51,8 +50,7 @@ object IdDslValueBudget {
                 is JsonNull -> addBytes(4)
                 is JsonPrimitive -> {
                     if (value.isString) {
-                        val textBytes = utf8ByteLength(value.content, maxBytes.coerceAtMost(Int.MAX_VALUE.toLong()).toInt() + 1)
-                        addBytes(2L + textBytes)
+                        quoted(value.content)
                     } else {
                         addBytes(value.content.length.toLong())
                     }
@@ -60,26 +58,57 @@ object IdDslValueBudget {
 
                 is JsonArray -> {
                     addBytes(2)
+                    var first = true
                     for (element in value) {
-                        addBytes(1)
+                        if (!first) addBytes(1)
+                        first = false
                         value(element, depth + 1)
                     }
                 }
 
                 is JsonObject -> {
                     addBytes(2)
+                    var first = true
                     for ((key, entry) in value) {
-                        addBytes(3L + key.length)
+                        if (!first) addBytes(1)
+                        first = false
+                        quoted(key)
+                        addBytes(1)
                         value(entry, depth + 1)
                     }
                 }
             }
         }
 
+        private fun quoted(text: String) {
+            addBytes(2)
+            var index = 0
+            while (index < text.length) {
+                val character = text[index]
+                val width = when {
+                    character == '"' || character == '\\' -> 2
+                    character.code < 0x20 -> when (character) {
+                        '\b', '\u000C', '\n', '\r', '\t' -> 2
+                        else -> 6
+                    }
+                    character.code < 0x80 -> 1
+                    character.code < 0x800 -> 2
+                    character.isHighSurrogate() && index + 1 < text.length &&
+                        text[index + 1].isLowSurrogate() -> {
+                        index++
+                        4
+                    }
+                    else -> 3
+                }
+                addBytes(width.toLong())
+                index++
+            }
+        }
+
         private fun addNode(count: Int) {
             nodes += count
             if (nodes > maxNodes) {
-                throw IdValueBudgetExceeded("plan values exceed ${IdDslLimits.MAX_VALUE_JSON_NODES} JSON nodes")
+                throw IdValueBudgetExceeded("JSON expansion exceeds the remaining $maxNodes-node budget")
             }
         }
 

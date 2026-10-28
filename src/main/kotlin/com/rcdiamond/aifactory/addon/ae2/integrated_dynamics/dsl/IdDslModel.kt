@@ -15,6 +15,9 @@ object IdDslLimits {
     /** Definitions (value/native/call nodes) in one plan. */
     const val MAX_NODES: Int = 256
 
+    /** Shared typed IR nodes before static literals collapse into physical card definitions. */
+    const val MAX_TYPED_NODES: Int = 8_192
+
     /** Named imports or named outputs in one plan. */
     const val MAX_PORTS: Int = 64
 
@@ -29,6 +32,9 @@ object IdDslLimits {
 
     /** Maximum UTF-8 size of one encoded plan JSON. */
     const val MAX_PLAN_BYTES: Int = 256 * 1024
+
+    /** Physical JSON nesting, including type and plan envelopes, before schema decoding. */
+    const val MAX_PLAN_JSON_DEPTH: Int = 64
 
     /** Retained diagnostics per compile/validation. */
     const val MAX_DIAGNOSTICS: Int = 64

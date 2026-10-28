@@ -1,6 +1,7 @@
 package com.rcdiamond.aifactory.addon.ae2.integrated_dynamics.dsl
 
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -338,6 +339,34 @@ class IdPlanValidatorTest {
     }
 
     @Test
+    fun `deep untrusted JSON is rejected before recursive serialization`() {
+        var nested: JsonElement = JsonPrimitive(0)
+        repeat(10_000) { nested = JsonArray(listOf(nested)) }
+        val malformed = buildJsonObject { put("nested", nested) }
+        val result = IdPlanValidator.validate(malformed, emptyMap())
+        result.assertHas(IdDiagnosticCode.E_LIMIT)
+        assertFalse(result.ok)
+        assertEquals(null, result.plan)
+    }
+
+    @Test
+    fun `encoded plan budget includes control character escaping`() {
+        val plan = IdPlan(
+            imports = emptyList(),
+            nodes = List(10) { index ->
+                IdPlanNode.Value(index, IdDslTypes.STRING, JsonPrimitive("\u0000".repeat(5_000) + index))
+            },
+            outputs = List(10) { index ->
+                IdPlanOutput("result$index", IdReference.Node(index), IdDslTypes.STRING)
+            },
+        )
+        val result = IdPlanValidator.validate(plan, emptyMap())
+        result.assertHas(IdDiagnosticCode.E_LIMIT)
+        assertFalse(result.ok)
+        assertEquals(null, result.plan)
+    }
+
+    @Test
     fun `reachability output type and unused imports are checked`() {
         val unreachable = IdPlan(
             imports = emptyList(),
@@ -400,5 +429,32 @@ class IdPlanValidatorTest {
             })
         }
         IdPlanValidator.validate(forward, emptyMap()).assertHas(IdDiagnosticCode.E_TYPE)
+    }
+
+    @Test
+    fun `forged equality calls cannot compare functions hidden in data lists`() {
+        val function = IdDslTypes.fn(IdDslTypes.INTEGER, IdDslTypes.INTEGER, result = IdDslTypes.INTEGER)
+        for (type in listOf(function, IdDslTypes.list(IdDslTypes.list(function)))) {
+            val definition = if (type is IdDslType.FunctionType) {
+                IdPlanNode.Native(0, type, IdOperatorCatalog.ARITHMETIC_ADDITION)
+            } else {
+                IdPlanNode.Value(0, type, JsonArray(emptyList()))
+            }
+            val plan = IdPlan(
+                imports = emptyList(),
+                nodes = listOf(
+                    definition,
+                    IdPlanNode.Call(
+                        1, IdDslTypes.BOOLEAN, IdOperatorCatalog.RELATIONAL_EQUALS,
+                        listOf(IdReference.Node(0), IdReference.Node(0)),
+                    ),
+                ),
+                outputs = listOf(IdPlanOutput("result", IdReference.Node(1), IdDslTypes.BOOLEAN)),
+            )
+            val result = IdPlanValidator.validate(plan, emptyMap())
+            result.assertHas(IdDiagnosticCode.E_TYPE)
+            assertFalse(result.ok)
+            assertEquals(null, result.plan)
+        }
     }
 }

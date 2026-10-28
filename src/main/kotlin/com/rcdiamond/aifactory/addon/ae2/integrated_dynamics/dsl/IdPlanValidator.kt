@@ -33,20 +33,6 @@ data class IdPlanValidation(
  */
 object IdPlanValidator {
     fun validate(planJson: JsonObject, resolvedInputs: Map<String, IdResolvedInput>): IdPlanValidation {
-        if (utf8ByteLength(planJson.toString(), IdDslLimits.MAX_PLAN_BYTES) > IdDslLimits.MAX_PLAN_BYTES) {
-            return IdPlanValidation(
-                ok = false,
-                diagnostics = listOf(
-                    IdDiagnostic(
-                        code = IdDiagnosticCode.E_LIMIT,
-                        severity = IdSeverity.ERROR,
-                        message = "encoded plan exceeds ${IdDslLimits.MAX_PLAN_BYTES} UTF-8 bytes",
-                        hint = IdDslCompiler.hintFor(IdDiagnosticCode.E_LIMIT),
-                    ),
-                ),
-                plan = null,
-            )
-        }
         val plan = try {
             IdDslWire.parsePlan(planJson)
         } catch (failure: IdWireException) {
@@ -329,7 +315,7 @@ object IdPlanValidator {
                         null,
                     )
                 } else {
-                    matcher.finish()?.let { error(IdDiagnosticCode.E_UNRESOLVED_TYPE, it, node.id, null) }
+                    matcher.finish()?.let { (code, message) -> error(code, message, node.id, null) }
                 }
             }
 
@@ -402,7 +388,7 @@ object IdPlanValidator {
                         null,
                     )
                 } else if (valid) {
-                    matcher.finish()?.let { error(IdDiagnosticCode.E_UNRESOLVED_TYPE, it, node.id, null) }
+                    matcher.finish()?.let { (code, message) -> error(code, message, node.id, null) }
                 }
             }
 
@@ -807,15 +793,15 @@ object IdPlanValidator {
             }
         }
 
-        fun finish(): String? {
+        fun finish(): Pair<IdDiagnosticCode, String>? {
             for (id in quantified) {
                 val type = resolve(LangType.Variable(id))
                 if (type is LangType.Variable) {
-                    return "could not determine every type variable of the native contract"
+                    return IdDiagnosticCode.E_UNRESOLVED_TYPE to "could not determine every type variable of the native contract"
                 }
                 for (constraint in constraints[id].orEmpty()) {
                     if (!accepts(type, constraint)) {
-                        return "type ${type.display()} does not satisfy ${constraint.display()}"
+                        return IdDiagnosticCode.E_TYPE to "type ${type.display()} does not satisfy ${constraint.display()}"
                     }
                 }
             }
@@ -825,7 +811,11 @@ object IdPlanValidator {
         private fun accepts(type: LangType, constraint: TypeConstraint): Boolean = when (constraint) {
             TypeConstraint.Numeric -> type is LangType.Nominal && type.name in IdDslTypes.NUMERIC_SCALARS
             TypeConstraint.Concat -> type is LangType.Nominal && type.name == "String" || type is LangType.ListType
-            TypeConstraint.Equatable -> type !is LangType.FunctionType
+            TypeConstraint.Equatable -> when (type) {
+                is LangType.Nominal -> true
+                is LangType.ListType -> accepts(type.element, constraint)
+                is LangType.FunctionType, is LangType.Variable -> false
+            }
             is TypeConstraint.Named -> false
         }
 
