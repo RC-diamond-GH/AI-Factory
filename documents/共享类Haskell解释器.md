@@ -491,7 +491,7 @@ output function : Fn(Item, Item) -> Boolean = eq;
 
 ## 14. 验证状态
 
-本切片按并行开发约定只编写、不运行 Gradle 构建或测试。行为测试位于 `src/test/kotlin/com/rcdiamond/aifactory/lang/`，覆盖：
+集成后已实际运行 `deliverySmoke build`：完整 **373** 项默认测试通过，其中共享语言 **85** 项，失败／错误／跳过均为 0。行为测试位于 `src/test/kotlin/com/rcdiamond/aifactory/lang/`，覆盖：
 
 - `LexerParserTest`：最长 token、注释、转义/代理对、优先级、应用与减号、比较链、分号、数字边界；
 - `TypeCheckTest`：前向引用、端口命名空间、环、重复/遮蔽、未特化类型、空列表、单态、注解不转换、数值/条件/拼接/函数签名；
@@ -501,4 +501,4 @@ output function : Fn(Item, Item) -> Boolean = eq;
 - `LimitsTest`：源码/字节/token/字符串/嵌套/列表/声明/类型/依赖/节点/求值限制；
 - `SourceTest`：UTF-16 行列、CRLF、`utf8ByteLength`、诊断渲染。
 
-集成后由父代理统一运行测试与构建；本文不宣称这些测试已经执行通过。
+独立 CLI 烟测实际调用 `LangCompiler` 与 `PureEvaluator`：`map (add 10) [1,2,3]` 再 `reduce add ... 0` 得到 `36`；未选中的除零分支不求值、结果 `42`；`false && (1 / 0 == 0)` 得到 `false`；Long 最小值正确。错误程序分别得到 `E_TYPE`、含 `a → b → a` 的 `E_CYCLE`、`E_UNKNOWN_NAME` 和带源码位置的 `E_EMPTY_LIST_TYPE`。构建生成了重混淆发布包。未启动 Minecraft 客户端／服务端，未调用付费模型 API；这不证明 ID 世界中的制卡、存储或原生持续求值已通过。
