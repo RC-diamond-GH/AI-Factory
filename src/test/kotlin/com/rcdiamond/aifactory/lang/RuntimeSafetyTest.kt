@@ -75,8 +75,14 @@ class RuntimeSafetyTest {
         )
         assertEquals(
             DiagnosticCode.E_LIMIT,
-            failure("input xs : [Integer];\noutput ys : [Integer] = filter (flip gt 1) xs;", 3).code,
+            failure("input xs : [Integer];\noutput ys : [Integer] = filter (flip gt 0) xs;", 3).code,
         )
+        val narrow = evaluateTest(
+            "input xs : [Integer];\noutput ys : [Integer] = filter (flip gt 100) xs;",
+            inputs = inputs,
+            evaluationLimits = EvaluationLimits(maxListElements = 3),
+        )
+        assertEquals(emptyList(), narrow.list("ys"))
         assertEquals(
             DiagnosticCode.E_LIMIT,
             failure("input xs : [Integer];\noutput ys : [Integer] = reduce append xs [];", 3).code,
