@@ -118,7 +118,7 @@ fun interface TypeConstraintRule {
  * reads the [TypedModule] types and primitive names and maps them to its own native operations.
  * Objects such as Minecraft items never appear in this package.
  */
-class LanguageEnvironment private constructor(
+class LanguageEnvironment internal constructor(
     val nominalTypes: Map<String, NominalType>,
     val primitives: Map<String, PrimitiveContract>,
     val objectConstructors: Map<ObjectKind, ObjectConstructorSpec>,
