@@ -2,14 +2,14 @@
 
 ## 1. 范围与依赖约束
 
-核心实现包含客户端流式 ReAct、可注册 Tool、普通 G 键聊天的 `give_item` / `execute_command`、服务端游戏机制、聊天界面与 TOML 配置。可选 AE2 集成另有智能元件、联网终端与五项 ME Tool；AE2 助手不注册给予物品或执行命令的工具，旧会话恢复时也更新为当前 ME Tool Schema。共享上下文与锁放在核心，JTokkit 提供本地存储 Token 计数。详见 [AE2 智能存储交付说明](./AE2智能存储拓展交付说明.md)。
+核心实现包含客户端流式 ReAct、可注册 Tool、普通 G 键聊天的 `give_item` / `execute_command`、服务端游戏机制、聊天界面与 TOML 配置。可选 AE2 集成另有智能元件、联网终端与五项 ME Tool；可选 Integrated Dynamics 集成有独立完整终端方块与三项只读网络 Tool。ME／ID 助手均不注册给予物品或命令工具；JEI 只加入普通／ME Agent。会话恢复使用当前注册的 Tool Schema。上下文编码与租约规则可复用，但 ID 的存储和租约实例独立于 ME。详见 [AE2 智能存储交付说明](./AE2智能存储拓展交付说明.md)及[开发记录的 ID 章节](./开发与踩坑记录.md#9-integrated-dynamics-独立终端与只读-agent)。
 
 - 数据模式和抽象能力定义在 `com.rcdiamond.aifactory.client.llm`；Agent、Tool 和游戏网络消息使用这些模式，不依赖 OpenAI wire format。
 - LLM API 请求、Agent 决策、Tool 定义与参数策略全部运行在客户端。
 - 世界和背包变更仅由服务端执行。服务端不知道 Tool 注册器、ReAct 或模型提供者，只接收明确类型的游戏操作请求，包括以请求玩家身份执行命令。
 - `client.llm` 的名称不代表所有类都是客户端专用类：其中的纯数据模式可被独立服务端加载，禁止在这些模式中引入 `Minecraft`、屏幕或渲染类。
 - 聊天屏幕只接收 `client.llm.AgentChatSession` 会话契约和 `ChatEntry` 展示数据，不导入 `ReactAgent`、`ToolManager`、`ClientAgentRuntime` 或具体 Provider；客户端事件组合入口注入会话实现。
-- 客户端组合入口 `ClientAgentRuntime` 和 `ClientSharedSessionRuntime` 选择并实例化 `OpenAICompletion`。共享上下文可以由服务端持久化，但服务端不持有 Provider、API 密钥或 ReAct，不访问 LLM API。
+- `ClientAgentRuntime` 是普通聊天组合入口；`ClientSharedSessionRuntime` 和 `IntegratedDynamicsAgentRuntime` 分别注入 ME／ID 的协议、工具与提示，继承可复用的 `SharedAgentSessionRuntime`，各自持有独立上下文、协程和界面状态。Provider 仍只在客户端创建；服务端不持有 API 密钥或 ReAct，不访问 LLM API。
 
 ## 2. 组件与职责
 
@@ -32,9 +32,13 @@
 | `client.ClientModEvents` / `ClientGameEvents` | 客户端 | `Dist.CLIENT` 隔离的按键、客户端 tick、响应与断线订阅 |
 | `AIFactory` | 两端入口 | 公共初始化时通过 `enqueueWork` 注册网络；不初始化客户端 Agent 或发起模型请求 |
 | `shared.*` | 共享纯规则 / 服务端 | 上下文编码、哈希、容量、世界存档、独占锁与服务端会话校验；无 AE2 类型 |
-| `network.SharedSessionNetwork` | 两端 | 共享会话的有界分片 RPC 与终端打开事件；独立协议版本 `"3"` |
-| `client.shared.*` | 客户端 | UUID / 哈希缓存同步、共享会话生命周期、选择界面、后台 HUD；复用 `ReactAgent`，使用独立无工具请求生成会话标题 |
+| `network.SharedSessionNetwork` | 两端 | 有界分片 RPC 与终端打开事件；协议版本 `"6"`；独立端点共享传输，不共享存储或授权 |
+| `client.shared.SharedAgentSessionRuntime` / `SharedAgentProfile` | 客户端 | 每个组合入口独立实例：UUID／哈希缓存、保存确认、后台回合、当前工具 Schema 与无工具自动标题请求 |
+| `client.shared.*` 界面与 HUD | 客户端 | 注入对应运行实例；ME 显示真实元件，ID 显示终端会话而不伪造 ME 元件 |
 | `addon.ae2.*` | 可选集成 | 元件与终端注册、网格授权、库存 / NBT 详情 / 异步合成计划与请求 / 样板容器视图、编码与投放 |
+| `addon.ae2.integrated_dynamics.*` | 可选 ID 集成 | 原生线缆网络成员、终端／引用持久化、独立会话服务、三项只读网络检查；无 AE2 API 依赖 |
+| `addon.jei.client.tool.*` / `JeiQueryGateway` | 客户端，纯契约 | 材料搜索／配方查询 Schema、参数校验和可替换查询后端；无 JEI API 类型 |
+| `addon.jei.client.integration.*` | 可选 JEI 客户端集成 | JEI 插件发现、runtime 生命周期、公开 API 查询、有界材料引用及展示槽位转换 |
 
 ## 3. 决策与执行路径
 
@@ -64,7 +68,7 @@ sequenceDiagram
     Agent-->>UI: 流式文本与回合结束
 ```
 
-策略与机制分离：Tool 负责模型可见的名称、描述、参数形状和客户端参数检查；网关负责传输与等待；服务端负责实际游戏规则。服务端不通过工具名调度行为；命令字符串只由专门的 `ExecuteCommandRequest` 携带，使用原版玩家命令执行机制。
+策略与机制分离：Tool 负责模型可见的名称、描述、参数形状和客户端参数检查；网关负责传输与等待；服务端负责实际游戏规则，不加载客户端 Tool 注册器。普通游戏动作使用专门消息；共享终端通过各自服务端白名单分派操作名。命令字符串只由 `ExecuteCommandRequest` 携带，使用原版玩家命令机制。
 
 ## 4. ReAct 与 Tool 协议
 
@@ -110,6 +114,27 @@ Tool 返回包含 `item_id`、`count`、`success`、`message` 的 JSON 观察结
 支持原版和模组注册的服务端命令，不支持仅客户端注册的命令。只捕获本次同步执行通过 `CommandSource` 发送的系统反馈；聊天广播、延迟任务及其他通道的信息不保证出现在 Tool 结果中。超时、断线或取消不撤销已执行操作。
 
 
+### 4.5 可选 JEI 查询
+
+`ClientAgentRuntime.configure()` 和 ME 组合入口 `ClientSharedSessionRuntime` 的工具注册回调分别检查客户端 `ModList.isLoaded("jei")`，调用 `JeiTools.register(...)`；共享生命周期与 Provider 构造已移入 `SharedAgentSessionRuntime.configureAgent()`。未安装 JEI 时不创建工具实例或发布 Schema；聊天屏幕不检测具体 Tool。ME 助手不获得给予物品／命令工具，ID 组合入口不注册 JEI。
+
+`AiFactoryJeiPlugin` 是有公开无参构造函数的普通 Kotlin `class`，由 JEI 的 `@JeiPlugin` 扫描器创建，不使用 KFF Mod 入口的 `object` 模式。它在 `onRuntimeAvailable` 安装新的 `JeiQueryBackend`，在 `onRuntimeUnavailable` 撤销对应实例。纯 `JeiQueryGateway` 在后端缺失时返回 `jei_not_ready`；工具定义不会随资源重载反复移除。JEI API 仅在 `integration` 包出现，不进入公共入口、服务端或 Agent 的字段／方法类型。
+
+- `jei_find_ingredients`：必填 `filter`，1–128 字符，裁剪外部空白，按名称／注册 ID 做忽略大小写的字面子串搜索，不支持 JEI 搜索框语法，也不修改搜索框。`page` 0–100；`page_size` 1–50，默认 20。
+- `jei_query_recipes`：`ingredient_key` 和 `ingredient_id` 恰好选一个。直接 ID 可带 `ingredient_type=item|fluid`，默认 item；无命名空间时按 minecraft 处理。`direction=recipes|uses|catalyst` 分别创建 OUTPUT／INPUT／CATALYST focus；可带 `category_id`。`page` 0–100；`page_size` 1–10，默认 5。
+- 示例参数：`{"ingredient_id":"minecraft:piston","direction":"recipes","page_size":5}`；搜索得到的 `key` 则通过 `{"ingredient_key":"返回的原始引用","direction":"uses"}` 查询。
+- 所有参数拒绝未知字段、错误类型、显式 null 和越界值；身份参数互斥，`ingredient_type` 不能与 key 同时提交。
+
+查询在客户端主线程同步执行：先用公开 API 按 focus 查分类及配方，分页并观察额外一条匹配，再为当前页构建布局。返回 `returned`／`has_more`，不为统计总数遍历完整配方库。材料可包含自定义 JEI 类型；通过 helper 的名称、ID、amount 和 UID 描述，不假定全部都是 ItemStack。物品单位 count，Forge 流体单位 millibuckets；未知数量／单位返回 null。
+
+引用由随机 runtime 标识和单调计数组成，使用 JEI UID 对象的 equals/hashCode 去重，不能通过 UID 的 toString 合并子类型。最多保留 4096 个近期引用；新 runtime 不复用旧引用，缓存淘汰后也不把旧 key 重新绑定到其他材料。每次通过 key 查询仍检查当前 recipe-context 可见性，防止 key 绕过动态隐藏。共享历史中的旧 key 不是持久标识，遇到 `unknown_key` 必须重新搜索。
+
+响应限制：搜索最多检查 100000 个材料；每配方最多 64 槽位、每槽位最多 64 候选、每配方最多序列化 256 个可见候选，分类催化剂最多 64 个，描述字符串最多 256 字符。命中限制会报告 `truncated` 及相应遗漏计数。隐藏／空白候选保留 null 占位，槽位索引不重新排列。布局缺失或失败使用 `display_extraction_complete=false` 和 `extraction`；催化剂失败单独报告 `catalysts_error`，不伪装成没有工作台。
+
+`display_extraction_complete` 只描述展示提取是否完成，不表示配方完整。`getAllIngredientsList` 忽略 focus，轮换候选可能存在跨槽位关联，不能自由笛卡尔组合；`addInvisibleIngredients` 索引材料不在布局视图中。此工具不提取网格位置、耗能、耗时、概率或机器条件，不产生可直接执行／编码的配方结构，也不替代服务端 AE2 合成计划。
+
+构建仅 compileOnly 引入 JEI common-api／forge-api，开发 localRuntime 使用完整 JEI。`mods.toml` 的 JEI 依赖为可选 CLIENT，范围 `[15.62.0,16)`；开发版本 15.62.0.219。发布 JAR 不内嵌 JEI 或 MezzConfig。
+
 ## 5. 服务端权限与网络边界
 
 频道：`ai_factory:game_action`，协议版本 `"2"`。两端严格匹配版本；频道缺失或版本不符会在 Forge 握手时拒绝连接。客户端和服务端均须安装本 Mod 及其 Forge / KFF 依赖；旧协议版本不能与新版本混用。
@@ -123,7 +148,7 @@ Tool 返回包含 `item_id`、`count`、`success`、`message` 的 JSON 观察结
 
 消息类型只有 `client.llm` 中定义的模式。固定的包方向阻止反向伪造包。处理器使用 `consumerMainThread`，服务端变更在服务端主线程执行；回复使用收到请求的网络上下文，仅发回原发送者。
 
-共享终端使用独立 `ai_factory:shared_session` 频道，版本 `"3"`；原 `game_action` 线格式与版本 `"2"` 不变。`list/create/open/save/state/tool` 的发送者以连接上的真实玩家为准，Tool 与保存必须匹配服务端会话锁。`create` 优先使用请求元件，满额时选择同网格其他有空间的已安装元件，并在响应中返回实际 `cellId`。名称留空时记录待自动命名标记；客户端首次成功回答后使用同一 Provider 发起独立无工具标题请求，不修改 Agent 历史。标题与正文原子保存，服务端返回标题及自动命名状态，手填或已生成标题不被覆盖。客户端和服务端必须同时更新，不兼容共享协议 `"1"` / `"2"`。上下文分片只传纯 JSON，不传网格对象、Provider 或配置密钥。
+共享终端使用 `ai_factory:shared_session` 频道，版本 `"6"`；原 `game_action` 线格式与版本 `"2"` 不变。ME 的 `list/create/open/save/delete/state/tool` 使用原有服务，ID 的 `id_list/id_create/id_open/id_save/id_delete/id_state/id_tool` 使用独立端点；发送者均以真实连接玩家为准。ID locator 为 `{kind:"integrated_dynamics",dimension,x,y,z}`，不捏造 AE2 安装面。ME 创建时响应实际 `cellId`，ID 响应 `terminalId`；客户端统一展示模式称 `storageId`，不改变各端点所有权规则。Tool 和保存必须匹配各自服务的锁及实时终端／引用。自动标题使用无工具请求，标题与正文同次保存；上下文只传纯 JSON，不传 Provider 或密钥。两侧必须同时更新，不兼容较旧共享协议。
 
 `give_item` 服务端不信任客户端检查，独立执行：
 
@@ -208,6 +233,12 @@ API 密钥以明文存储在客户端文件。不要提交或分享 `model.toml`
 命令 Tool 本地测试覆盖参数形状、原始文本边界、规范化与反馈聚合。独立命令 smoke 使用合成玩家 / 服务端上下文（没有启动服务端或世界），实际调用生产 Tool 注册器、`ExecuteCommandMechanism`、原版 `Commands` / Brigadier 和已启动的 Forge 事件总线，验证玩家身份 / 位置 / 朝向保留、结果 0 的成功、权限拒绝、语法错误反馈、输出截断、非法输入及 `CommandEvent` 取消。独立 JVM 仅为预热未经过 ModLauncher 注入默认构造器的事件监听表使用了临时辅助代码；不将此 smoke 视为实际加载器、联机或世界验收。临时文件验证后移除。
 
 发布 JAR 检查确认 Mod 类字节码目标为 Java 17，Forge 元数据已展开，中英文翻译键一致，不包含 `.env`、`model.toml` 或 `agent.toml`。公共入口、网络、服务端机制和共享模式的直接字节码引用检查没有发现客户端界面、Agent、Tool 或 Provider 引用；这是静态隔离检查，不是独立服务端启动证明。
+
+JEI 联动增加了 9 个参数／网关生命周期／摘要安全回归用例；全套 274 个本地测试通过。独立 JVM 使用明确的 JEI 公开接口 fixture，实际执行生产 `ToolManager → JeiQueryGateway → JeiQueryBackend`，验证自定义材料、分页、隐藏／空白候选索引、数量、布局失败、候选／槽位上限、动态隐藏、UID 对象同文不同身份、runtime 失效及新 runtime 已发出引用后旧 key 仍被拒绝。另一个无 JEI API 的 classpath 验证纯 Tool／网关与两处 Agent 签名可链接；发布包验证插件注解、Java 17、可选客户端依赖以及不内嵌 JEI。临时源码、编译产物和启动脚本已移除。这不是 JEI 真实索引、Forge 插件发现、游戏界面渲染或独立服务端加载的验收。
+
+ID 集成新增 14 项会话所有权、保存冲突、持久化、损坏数据保护、参数边界与分页终止回归；当前全套 288 项本地测试通过。独立 JVM 实际执行 ID 存储的创建、保存、临时文件重读、跨终端拒绝、过期保存拒绝及删除，并检查分页验证。去掉 AE2／GuideME 的 classpath 可链接 ID 公共注册、方块、方块实体、网络访问与会话服务类；未初始化 Forge 世界或注册生命周期，不能视为真实网络接入或独立服务端验收。发布包包含 ID 资源与 Java 17 类，不内嵌 ID 或其库。当前工具不读取常量内容／运行值，不生成变量卡或执行 DSL。
+
+
 
 按仓库约束没有启动 Minecraft 客户端或服务端，本次也没有调用付费外网 API。因此以下项目不是已通过的验收，须在游戏中执行：
 

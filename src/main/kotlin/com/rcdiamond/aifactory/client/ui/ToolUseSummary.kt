@@ -42,6 +42,11 @@ object ToolUseSummary {
     private const val TOOL_MANAGE_PATTERNS = "ae2_manage_patterns"
     private const val TOOL_GIVE_ITEM = "give_item"
     private const val TOOL_EXECUTE_COMMAND = "execute_command"
+    private const val TOOL_JEI_FIND_INGREDIENTS = "jei_find_ingredients"
+    private const val TOOL_JEI_QUERY_RECIPES = "jei_query_recipes"
+    private const val TOOL_ID_NETWORK_INFO = "id_network_info"
+    private const val TOOL_ID_LIST_PARTS = "id_list_parts"
+    private const val TOOL_ID_LIST_VARIABLES = "id_list_variables"
 
     private const val ACTION_ENCODE_INSTALL = "encode_install"
 
@@ -62,12 +67,21 @@ object ToolUseSummary {
     private const val KEY_SUMMARY_GIVE_ITEM = "ai_factory.tool.summary.give_item"
     private const val KEY_SUMMARY_COMMAND = "ai_factory.tool.summary.command"
     private const val KEY_SUMMARY_COMMAND_TRUNCATED = "ai_factory.tool.summary.command_truncated"
+    private const val KEY_SUMMARY_JEI_INGREDIENTS = "ai_factory.tool.summary.jei_ingredients"
+    private const val KEY_SUMMARY_JEI_INGREDIENTS_MORE = "ai_factory.tool.summary.jei_ingredients_more"
+    private const val KEY_SUMMARY_JEI_INGREDIENTS_TRUNCATED = "ai_factory.tool.summary.jei_ingredients_truncated"
+    private const val KEY_SUMMARY_JEI_RECIPES = "ai_factory.tool.summary.jei_recipes"
+    private const val KEY_SUMMARY_JEI_RECIPES_MORE = "ai_factory.tool.summary.jei_recipes_more"
+    private const val KEY_SUMMARY_JEI_RECIPES_TRUNCATED = "ai_factory.tool.summary.jei_recipes_truncated"
     private const val KEY_SUMMARY_NO_RESULT = "ai_factory.tool.summary.no_result"
     private const val KEY_ERROR_UNKNOWN_TOOL = "ai_factory.tool.error.unknown_tool"
     private const val KEY_ERROR_INVALID_ARGUMENTS = "ai_factory.tool.error.invalid_arguments"
     private const val KEY_ERROR_TIMEOUT = "ai_factory.tool.error.timeout"
     private const val KEY_ERROR_INTERRUPTED = "ai_factory.tool.error.interrupted"
     private const val KEY_ERROR_UNKNOWN_KEY = "ai_factory.tool.error.unknown_key"
+    private const val KEY_ERROR_JEI_NOT_READY = "ai_factory.tool.error.jei_not_ready"
+    private const val KEY_ERROR_UNKNOWN_INGREDIENT = "ai_factory.tool.error.unknown_ingredient"
+    private const val KEY_ERROR_UNKNOWN_CATEGORY = "ai_factory.tool.error.unknown_category"
     private const val KEY_ERROR_MISSING_ITEMS = "ai_factory.tool.error.missing_items"
     private const val KEY_ERROR_CRAFTING_REJECTED = "ai_factory.tool.error.crafting_rejected"
     private const val KEY_ERROR_INSTALL_FAILED = "ai_factory.tool.error.install_failed"
@@ -200,7 +214,45 @@ object ToolUseSummary {
             val key = if (reply.booleanOrNull("output_truncated") == true) KEY_SUMMARY_COMMAND_TRUNCATED else KEY_SUMMARY_COMMAND
             text(key, arrayOf<Any>(label, code))
         }
+        TOOL_JEI_FIND_INGREDIENTS -> jeiPage(
+            reply,
+            KEY_SUMMARY_JEI_INGREDIENTS,
+            KEY_SUMMARY_JEI_INGREDIENTS_MORE,
+            KEY_SUMMARY_JEI_INGREDIENTS_TRUNCATED,
+            label,
+            text,
+        )
+        TOOL_JEI_QUERY_RECIPES -> jeiPage(
+            reply,
+            KEY_SUMMARY_JEI_RECIPES,
+            KEY_SUMMARY_JEI_RECIPES_MORE,
+            KEY_SUMMARY_JEI_RECIPES_TRUNCATED,
+            label,
+            text,
+        )
         else -> text(KEY_SUMMARY_COMPLETED, arrayOf(label))
+    }
+
+    /**
+     * One JEI page: how many entries came back and which page it was, plus whether the backend had to
+     * cut the page or whether more pages remain. The result's contents are never summarized.
+     */
+    private fun jeiPage(
+        reply: JsonObject,
+        key: String,
+        moreKey: String,
+        truncatedKey: String,
+        label: String,
+        text: (String, Array<out Any>) -> String,
+    ): String {
+        val page = (reply.longOrNull("page") ?: 0L) + 1L
+        val returned = reply.longOrNull("returned") ?: 0L
+        val chosen = when {
+            reply.booleanOrNull("truncated") == true -> truncatedKey
+            reply.booleanOrNull("has_more") == true -> moreKey
+            else -> key
+        }
+        return text(chosen, arrayOf<Any>(label, returned, page))
     }
 
     // ------------------------------------------------------------------- errors
@@ -219,6 +271,9 @@ object ToolUseSummary {
             "timeout" -> text(KEY_ERROR_TIMEOUT, NO_ARGS)
             "interrupted" -> text(KEY_ERROR_INTERRUPTED, NO_ARGS)
             "unknown_key" -> text(KEY_ERROR_UNKNOWN_KEY, NO_ARGS)
+            "jei_not_ready" -> text(KEY_ERROR_JEI_NOT_READY, NO_ARGS)
+            "unknown_ingredient" -> text(KEY_ERROR_UNKNOWN_INGREDIENT, NO_ARGS)
+            "unknown_category" -> text(KEY_ERROR_UNKNOWN_CATEGORY, NO_ARGS)
             "missing_items" -> text(KEY_ERROR_MISSING_ITEMS, arrayOf(reply.longOrNull("missing_item_kinds") ?: 0L))
             "crafting_rejected" -> text(
                 KEY_ERROR_CRAFTING_REJECTED,
@@ -251,7 +306,9 @@ object ToolUseSummary {
     private fun label(name: String, text: (String, Array<out Any>) -> String): String {
         val key = when (name) {
             TOOL_READ_INVENTORY, TOOL_ITEM_DETAILS, TOOL_CRAFTING_PLAN, TOOL_REQUEST_CRAFTING,
-            TOOL_MANAGE_PATTERNS, TOOL_GIVE_ITEM, TOOL_EXECUTE_COMMAND -> "ai_factory.tool.name.$name"
+            TOOL_MANAGE_PATTERNS, TOOL_GIVE_ITEM, TOOL_EXECUTE_COMMAND,
+            TOOL_JEI_FIND_INGREDIENTS, TOOL_JEI_QUERY_RECIPES,
+            TOOL_ID_NETWORK_INFO, TOOL_ID_LIST_PARTS, TOOL_ID_LIST_VARIABLES -> "ai_factory.tool.name.$name"
             else -> null
         }
         if (key != null) return text(key, NO_ARGS)

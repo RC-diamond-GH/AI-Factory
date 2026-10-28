@@ -56,7 +56,7 @@ interface AgentChatSession {
 /** One shared session advertised by the server, without its conversation. */
 data class SharedSessionInfo(
     val id: UUID,
-    val cellId: UUID,
+    val storageId: UUID,
     val title: String,
     val hash: String,
     val tokens: Long,
@@ -66,8 +66,12 @@ data class SharedSessionInfo(
 /** One intelligent storage cell mounted inside a terminal's grid, as the server mounts it. */
 data class SharedCellInfo(val id: UUID, val bytes: Long, val usedBytes: Long, val sessionCount: Int)
 
-/** Reply of the shared `list` operation: the sessions stored on the terminal's cells and those cells. */
-data class SharedSessionList(val sessions: List<SharedSessionInfo>, val cells: List<SharedCellInfo>)
+/** A terminal's sessions; ME terminals additionally advertise installed cells, ID terminals their owner id. */
+data class SharedSessionList(
+    val sessions: List<SharedSessionInfo>,
+    val cells: List<SharedCellInfo>,
+    val storageId: UUID? = null,
+)
 
 /** Game-action messages contain no provider-specific types or credentials. */
 data class GiveItemRequest(val requestId: UUID, val itemId: String, val count: Int)

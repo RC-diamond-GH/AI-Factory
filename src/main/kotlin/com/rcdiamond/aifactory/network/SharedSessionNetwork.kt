@@ -42,7 +42,7 @@ import net.minecraftforge.network.simple.SimpleChannel
  */
 object SharedSessionNetwork {
     /** Exact-match protocol version. Changing the wire format means changing this string. */
-    const val PROTOCOL_VERSION: String = "5"
+    const val PROTOCOL_VERSION: String = "6"
 
     /** Largest payload carried by one chunk. */
     const val MAX_CHUNK_BYTES: Int = 24 * 1024
@@ -74,6 +74,18 @@ object SharedSessionNetwork {
 
     /** Replies being assembled on the client, per request id. */
     private val clientAssemblies = HashMap<UUID, ChunkAssembly>()
+
+    /** Optional addons share transport, not stores, leases, or agent capabilities. */
+    private val endpoints = LinkedHashMap<String, (ServerPlayer, String, JsonObject, (JsonObject) -> Unit) -> Unit>()
+
+    fun registerEndpoint(
+        prefix: String,
+        handler: (ServerPlayer, String, JsonObject, (JsonObject) -> Unit) -> Unit,
+    ) {
+        require(prefix.isNotEmpty() && prefix.endsWith("_")) { "An endpoint needs a nonempty operation prefix" }
+        require(endpoints.keys.none { it.startsWith(prefix) || prefix.startsWith(it) }) { "Overlapping session endpoints" }
+        endpoints[prefix] = handler
+    }
 
     /**
      * Creates the channel, registers the messages and installs the shared-session lease cleanup. Call once
@@ -193,9 +205,10 @@ object SharedSessionNetwork {
             return
         }
         val payload = request["payload"] as? JsonObject ?: JsonObject(emptyMap())
-        SharedSessionMechanism.handle(player, operation, payload) { response ->
-            respond(player, message.requestId, response)
-        }
+        val endpoint = endpoints.entries.firstOrNull { operation.startsWith(it.key) }
+        val reply: (JsonObject) -> Unit = { response -> respond(player, message.requestId, response) }
+        if (endpoint == null) SharedSessionMechanism.handle(player, operation, payload, reply)
+        else endpoint.value(player, operation.removePrefix(endpoint.key), payload, reply)
     }
 
     private fun handleResponse(message: SharedSessionResponseMessage) {

@@ -2,7 +2,7 @@
 
 English | [简体中文](README_cn.md)
 
-AI-Factory brings an LLM-powered assistant into Minecraft: chat in-game, request permission-checked game actions, and optionally work with an Applied Energistics 2 (AE2) network through an ME Intelligent Terminal.
+AI-Factory brings an LLM-powered assistant into Minecraft: chat in-game, request permission-checked game actions, and inspect networks through independent ME Intelligent and Integrated Dynamics Agent terminals.
 
 **Early beta.** The basic chat panel and AE2 integration features have been manually tested by the maintainer. Multiplayer, dedicated-server operation, and edge cases have **not** been manually tested. Back up your world before trying it; beta updates do not promise save compatibility.
 
@@ -18,15 +18,19 @@ AI-Factory brings an LLM-powered assistant into Minecraft: chat in-game, request
 | Kotlin for Forge (KFF) | **Required**; use **4.12.0** for Minecraft 1.20.1 |
 | Applied Energistics 2 | **Optional**; integration targets the Forge version **15.4.11** |
 | GuideME | Install **20.1.7** when using the AE2 integration |
+| Just Enough Items (JEI) | **Optional, client-side**; Forge 1.20.1 **15.62.0 or newer in the 15.x line**; development target **15.62.0.219** |
+| Integrated Dynamics | **Optional**; Forge 1.20.1, development target **1.31.3**, with its CyclopsCore and CommonCapabilities dependencies |
 
 1. Set up a Minecraft 1.20.1 Forge instance in your launcher.
 2. Download the AI-Factory release JAR from [GitHub Releases](https://github.com/RC-diamond-GH/AI-Factory/releases) and place it in that instance's `mods` directory. Choose the `.jar` attachment, not GitHub's source archives or a `-plain.jar` build.
 3. Install [Kotlin for Forge](https://github.com/thedarkcolour/KotlinForForge) for Minecraft 1.20.1. KFF is **not bundled** with AI-Factory; it is needed even without AE2.
 4. For the ME features, also install [AE2](https://github.com/AppliedEnergistics/Applied-Energistics-2) 15.4.11 and [GuideME](https://github.com/AppliedEnergistics/GuideME) 20.1.7, using their Minecraft 1.20.1 Forge builds.
+5. For recipe queries, install the Minecraft 1.20.1 Forge build of [JEI](https://github.com/mezz/JustEnoughItems) on the client. JEI is not bundled and is not required on the server for these tools.
+6. For ID features, install the Forge 1.20.1 builds of [Integrated Dynamics](https://github.com/CyclopsMC/IntegratedDynamics), CyclopsCore and CommonCapabilities on both sides. Development targets: ID **1.31.3**, CyclopsCore **1.20.0**, CommonCapabilities **2.9.7**. Neither AE2 nor Integrated Tunnels is required.
 
 Without AE2, the regular chat assistant remains available; ME items and terminal features are not registered. This is a Forge mod, not a Fabric or NeoForge build.
 
-The current networking design requires AI-Factory and KFF on **both the client and server**, with matching AI-Factory versions; AE2 integration also needs AE2 and GuideME on both sides. This describes installation requirements, **not verified multiplayer or dedicated-server support**.
+The networking design requires the **same AI-Factory build** and KFF on both sides; ME integration additionally needs AE2 and GuideME, while ID integration needs ID and its dependencies on both sides. This describes installation requirements, **not verified multiplayer or dedicated-server support**.
 
 ### 2. Configure LLM API access
 
@@ -62,6 +66,13 @@ Install an **ME Intelligent Cell** in an ME Drive, then attach an **ME Intellige
 
 Intelligent cells come in **1K / 4K / 16K / 64K / 256K** tiers. Each holds up to **8 conversations**, sharing that cell's capacity. These store conversation context, not ordinary item stacks. Storage is counted locally with `cl100k_base`; it is not your provider's billed token usage or a promise that the model can accept the entire stored history.
 
+### 4. Try the Integrated Dynamics integration (optional)
+
+Craft the **Integrated Dynamics Agent Terminal** or obtain it from its creative tab, place it and connect ID logic cables. Right-click after the network initializes to create or open a conversation. This is a full block, not an AE2 cable part; it requires no ME channel or intelligent cell.
+
+The block persists its identity and referenced session UUIDs; conversation bodies use separate world data. Each terminal supports up to **32 conversations**, each with at most **4 MiB** of normalized context. Normal block drops and sneak-wrench removal preserve the UUID references for replacement; this storage path is implemented but **has not been tested in-game**. ID and ME agents have independent histories, locks and tools while sharing the client LLM configuration. Conversations and tool observations are sent to the configured provider.
+
+
 ## Current capabilities
 
 ### Regular assistant — G key
@@ -86,6 +97,35 @@ Commands can affect the world and other players. Closing the regular chat cancel
 | `ae2_request_crafting` | Submit an actual AE2 crafting job using existing patterns; output stays in the network. |
 | `ae2_manage_patterns` | Inspect pattern containers; encode and install supported crafting, processing, stonecutting, and smithing patterns. |
 
+### Integrated Dynamics Agent Terminal — optional ID integration
+
+| ID tool | Capability |
+| --- | --- |
+| `id_network_info` | Native cable, element, part and resolvable-variable counts, consumption and ingredient components. |
+| `id_list_parts` | Page through loaded parts: IDs, types, channels, positions and actual target faces. |
+| `id_list_variables` | Inspect resolvable definitions in Variable Stores and active part slots, including types and operator/aspect/proxy/delay references. |
+
+Listings accept `filter`, zero-based `page`, and `page_size` (1–100, default 20). Pagination is live, not a frozen snapshot; inspection does not force-load chunks. A variable's `valid` flag is only the native facade's basic validity, not successful dependency/type validation or evaluation. These tools do not read constant contents or live values, create/edit cards, compile DSL, change logistics or inventories, or expose ME, item-grant, command or JEI tools.
+
+ID conversations support background turns and a HUD. The server checks the lease, terminal identity, references, dimension, loaded state and interaction permission. Initial access requires an eight-block range; leased background work only relaxes distance. Builds, standalone session smoke checks and AE2-free linkage do not verify actual network merging/splitting, wireless links, break/replacement, rendering or multiplayer behavior.
+
+
+### Recipe queries — optional JEI integration
+
+When JEI is installed on the client, both the regular assistant and the ME assistant receive these read-only tools. Without JEI, neither tool is registered; all existing non-JEI features remain available.
+
+| JEI tool | Capability |
+| --- | --- |
+| `jei_find_ingredients` | Search visible registered items, fluids and custom ingredient types by localized name or resource ID; return a bounded page with ingredient keys. |
+| `jei_query_recipes` | Query an ingredient's production recipes, input uses or catalyst uses, optionally limited to a JEI category; return displayed slots and category workstations/catalysts. |
+
+Try asking “Use JEI to find how to make a piston” or “Which JEI recipes use iron ingots?” The model must support tools and actually call them; an ordinary answer alone is not evidence of a query.
+
+Ingredient keys select JEI-defined subtypes, not every NBT field. They expire when JEI reloads or their bounded reference cache evicts them; search again after `unknown_key`. A direct item/fluid ID selects a default stack. A temporarily unavailable runtime returns `jei_not_ready` without changing the registered tool list.
+
+Results are JEI **display data**, not executable recipes or proof that the player/ME network can craft them. Rotation candidates can be correlated; lookup-only invisible ingredients are absent from the slot view. Machine energy, duration, probability and execution conditions are not extracted. Missing/failed layouts, hidden candidates and truncation are reported explicitly.
+
+
 ## Testing status and limitations
 
 **Manually tested by the maintainer:**
@@ -97,6 +137,7 @@ These are feature-level checks, not exhaustive coverage of every operation or en
 
 **Not manually tested:**
 
+- JEI recipe queries in an actual game, including plugin discovery, third-party categories and runtime reloads.
 - Multiplayer, including concurrent access to shared conversations.
 - Dedicated-server startup and operation.
 - The full range of edge cases: large histories, capacity limits, disconnects, timeouts, cancellation races, damaged saves, and interactions with other mods.
@@ -116,4 +157,4 @@ Never attach API keys, authorization headers, unreviewed configuration files, or
 
 Build setup, packaging pitfalls, provider contracts, and historical verification notes are in [Development notes (Chinese)](documents/开发与踩坑记录.md). Further implementation details are in the [AE2 delivery notes (Chinese)](documents/AE2智能存储拓展交付说明.md) and [client agent/tool design (Chinese)](documents/客户端ReAct与Tool架构设计.md).
 
-AI-Factory is licensed under [Apache-2.0](LICENSE). The release JAR bundles JTokkit under its [MIT license](src/main/resources/META-INF/licenses/jtokkit-LICENSE.txt); Kotlin for Forge, AE2, and GuideME are installed separately.
+AI-Factory is licensed under [Apache-2.0](LICENSE). The release JAR bundles JTokkit under its [MIT license](src/main/resources/META-INF/licenses/jtokkit-LICENSE.txt); Kotlin for Forge, AE2, GuideME, JEI, Integrated Dynamics, CyclopsCore and CommonCapabilities are installed separately.
