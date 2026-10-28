@@ -153,8 +153,9 @@ class LanguageEnvironment internal constructor(
 
         TypeConstraint.Equatable -> when (val resolved = type) {
             is LangType.Variable -> true
+            is LangType.Nominal -> true
+            is LangType.ListType -> accepts(resolved.element, TypeConstraint.Equatable)
             is LangType.FunctionType -> false
-            else -> true
         }
 
         is TypeConstraint.Named -> {

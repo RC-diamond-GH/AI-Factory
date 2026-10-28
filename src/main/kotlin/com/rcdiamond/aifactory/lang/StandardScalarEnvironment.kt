@@ -84,7 +84,11 @@ object StandardScalarEnvironment {
 
     private fun equality(): TypeScheme {
         val a = LangType.Variable(0)
-        return TypeScheme(LangTypes.function(a, a, result = LangTypes.BOOLEAN), setOf(0))
+        return TypeScheme(
+            LangTypes.function(a, a, result = LangTypes.BOOLEAN),
+            setOf(0),
+            listOf(SchemeConstraint(0, TypeConstraint.Equatable)),
+        )
     }
 
     private fun numericCast(target: LangType): TypeScheme {
