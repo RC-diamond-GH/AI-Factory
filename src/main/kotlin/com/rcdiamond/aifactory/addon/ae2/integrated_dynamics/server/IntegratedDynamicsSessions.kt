@@ -155,7 +155,7 @@ object IntegratedDynamicsSessions {
 
     /** The terminal's own authorized network must be part-network capable for aspect/variable access. */
     private fun partNetwork(network: INetwork): IPartNetwork =
-        NetworkHelpers.getPartNetwork(network).getOrNull()
+        NetworkHelpers.getPartNetwork(network).resolve().getOrNull()
             ?: throw IllegalArgumentException("This Integrated Dynamics network has no part network")
 
     private fun serverLevel(terminal: IntegratedDynamicsTerminalBlockEntity): ServerLevel =
