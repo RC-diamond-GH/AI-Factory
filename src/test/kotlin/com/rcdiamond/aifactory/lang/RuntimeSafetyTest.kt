@@ -82,7 +82,7 @@ class RuntimeSafetyTest {
             inputs = inputs,
             evaluationLimits = EvaluationLimits(maxListElements = 3),
         )
-        assertEquals(emptyList(), narrow.list("ys"))
+        assertEquals(emptyList<PureValue>(), narrow.list("ys"))
         assertEquals(
             DiagnosticCode.E_LIMIT,
             failure("input xs : [Integer];\noutput ys : [Integer] = reduce append xs [];", 3).code,
