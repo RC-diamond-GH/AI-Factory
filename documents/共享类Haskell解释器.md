@@ -442,7 +442,7 @@ data class Diagnostic(
 |`maxSourceChars`|UTF-16 字符上限|
 |`maxTokens`|词法 token 上限|
 |`maxDeclarations`|顶层声明数量|
-|`maxNestingDepth`|括号／解析递归和完整 AST 结构深度；两者分别检查，不能通过嵌套短链相乘绕过|
+|`maxNestingDepth`|括号／解析递归、完整 AST 结构深度，以及跨 let 引用的类型检查／降 IR 遍历深度；分别检查，不能通过短链或声明边界相乘绕过|
 |`maxTypeDepth`|类型结构深度、统一/occurs 深度|
 |`maxListLength`|单个列表字面量元素数|
 |`maxStringLength`|解码后字符串 UTF-16 长度|
@@ -450,7 +450,7 @@ data class Diagnostic(
 |`maxDependencyDepth`|let 依赖链/环搜索深度|
 |`maxDiagnostics`|保留诊断数量|
 
-`EvaluationLimits` 独立控制 `maxSteps`、`maxDepth`、`maxListElements`、`maxStringLength`。字符串上限默认为 **1,048,576 UTF-16 单元**，不是 UTF-8 字节；列表及字符串拼接、append、map、slice 和 filter 的输出增长在分配前检查。函数输出仍绑定原预算。解析器在类型检查与 AST 哈希前迭代核验完整结构深度；依赖环搜索和名称引用收集使用显式栈／单次遍历，因此默认限制内的复合输入以 `E_LIMIT` 拒绝，不让短链嵌套乘出 StackOverflow。
+`EvaluationLimits` 独立控制 `maxSteps`、`maxDepth`、`maxListElements`、`maxStringLength`。字符串上限默认为 **1,048,576 UTF-16 单元**，不是 UTF-8 字节；列表及字符串拼接、append、map、slice 和 filter 的输出增长在分配前检查。函数输出仍绑定原预算。解析器在类型检查与 AST 哈希前迭代核验完整结构深度；类型检查和降 IR 各自计量跨 `let` 的实际表达式遍历深度，包含输出引用层。依赖链搜索另受 `maxDependencyDepth` 约束；单个表达式和引用链分别不过限，不代表二者展开后的递归也可放行。默认限制内超深复合输入以 `E_LIMIT` 拒绝。
 
 ## 12. 示例
 
@@ -494,7 +494,7 @@ output function : Fn(Item, Item) -> Boolean = eq;
 
 ## 14. 验证状态
 
-已实际执行 `build` 与独立临时 CLI：完整 **393** 项默认测试通过，其中共享语言 **105** 项，失败／错误／跳过均为 0。行为测试位于 `src/test/kotlin/com/rcdiamond/aifactory/lang/`，覆盖：
+已实际执行 `build` 与独立临时 CLI：完整 **396** 项默认测试通过，其中共享语言 **108** 项，失败／错误／跳过均为 0。行为测试位于 `src/test/kotlin/com/rcdiamond/aifactory/lang/`，覆盖：
 
 - `LexerParserTest`：最长 token、注释、转义/代理对、优先级、应用与减号、比较链、分号、数字边界；
 - `TypeCheckTest`：前向引用、端口命名空间、环、重复/遮蔽、未特化类型、空列表、单态、注解不转换、数值/条件/拼接/函数签名；
@@ -503,7 +503,7 @@ output function : Fn(Item, Item) -> Boolean = eq;
 - `PureEvaluatorTest`：算术、短路、Choice、输入校验、字符串、列表原语、高阶列表、部分应用、组合、flip、call0、谓词组合、溢出/浮点、运行时错误；
 - `LimitsTest`：源码/字节/token/字符串/嵌套/列表/声明/类型/依赖/节点/求值限制；
 - `SourceTest`：UTF-16 行列、CRLF、`utf8ByteLength`、诊断渲染。
-- `FrontendSafetyTest`：完整 AST 深度、未使用表达式、诊断上限、函数／嵌套函数列表的等值约束。
+- `FrontendSafetyTest`：完整 AST 深度、未使用表达式、跨 let 引用的推断／降 IR 深度及其闭区间边界、诊断上限、函数／嵌套函数列表的等值约束。
 - `RuntimeSafetyTest`：组合／高阶应用步骤与深度、跨输出函数预算、列表／字符串分配前限制、宿主返回值、NaN 与有符号零。
 
 独立 CLI 烟测实际调用 `LangCompiler` 与 `PureEvaluator`：`map (add 10) [1,2,3]` 再 `reduce add ... 0` 得到 `36`；未选中的除零分支不求值、结果 `42`；`false && (1 / 0 == 0)` 得到 `false`；Long 最小值正确。错误程序分别得到 `E_TYPE`、含 `a → b → a` 的 `E_CYCLE`、`E_UNKNOWN_NAME` 和带源码位置的 `E_EMPTY_LIST_TYPE`。构建生成了重混淆发布包。未启动 Minecraft 客户端／服务端，未调用付费模型 API；这不证明 ID 世界中的制卡、存储或原生持续求值已通过。

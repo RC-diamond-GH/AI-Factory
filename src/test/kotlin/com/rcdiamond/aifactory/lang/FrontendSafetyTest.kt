@@ -45,6 +45,42 @@ class FrontendSafetyTest {
     }
 
     @Test
+    fun `forward let references cannot multiply inference depth`() {
+        compileTest(crossBindingProgram(reverse = false)).assertFailure(DiagnosticCode.E_LIMIT)
+    }
+
+    @Test
+    fun `previously inferred lets cannot multiply graph lowering depth`() {
+        compileTest(crossBindingProgram(reverse = true)).assertFailure(DiagnosticCode.E_LIMIT)
+    }
+
+    @Test
+    fun `cross binding traversal accepts its inclusive depth boundary`() {
+        val source = """
+            input seed : Integer;
+            let a = - - - b;
+            let b = - - - c;
+            let c = - - - d;
+            let d = - - - seed;
+            output result = a;
+        """.trimIndent()
+        compileTest(source, limits = LanguageLimits(maxNestingDepth = 16))
+            .assertFailure(DiagnosticCode.E_LIMIT)
+        val module = compileTest(source, limits = LanguageLimits(maxNestingDepth = 17)).assertSuccess()
+        assertEquals(LangTypes.INTEGER, module.output("result")?.type)
+    }
+
+    private fun crossBindingProgram(reverse: Boolean): String {
+        val declarations = (0 until 100).map { index ->
+            "let n$index = ${"- ".repeat(120)}${if (index == 99) "1" else "n${index + 1}"};"
+        }
+        val source = (if (reverse) declarations.asReversed() else declarations).joinToString("\n") +
+            "\noutput result = n0;"
+        assertTrue(source.length <= 32_768, "repro must fit the 32 KiB DSL profile")
+        return source
+    }
+
+    @Test
     fun `deep but accepted expressions compile through checking and lowering`() {
         var expression = "1"
         repeat(60) { expression = "($expression + 1)" }
