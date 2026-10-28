@@ -283,9 +283,12 @@ internal object IdNativeBackend {
                         }
                         val preparedAspect = aspectCards.getValue(key)
                         val facade = AspectVariableFacade(true, preparedAspect.partId, preparedAspect.aspect)
-                        writeAndPlace(facade, Aspects.REGISTRY as IVariableFacadeHandler<IAspectVariableFacade>) {
-                            takeBlank()
-                        } { card -> place(card) }
+                        writeAndPlace(
+                            facade,
+                            Aspects.REGISTRY as IVariableFacadeHandler<IAspectVariableFacade>,
+                            { takeBlank() },
+                            { card -> place(card) },
+                        )
                         aspectCreated[key] = facade.id
                         importIds[import.name] = facade.id
                         createdCards.add(buildJsonObject {
@@ -321,9 +324,12 @@ internal object IdNativeBackend {
                             expected as IValueType<IValue>,
                             preparedValue,
                         )
-                        writeAndPlace(facade, ValueTypes.REGISTRY as IVariableFacadeHandler<IValueTypeVariableFacade<*>>) {
-                            takeBlank()
-                        } { card -> place(card) }
+                        writeAndPlace(
+                            facade,
+                            ValueTypes.REGISTRY as IVariableFacadeHandler<IValueTypeVariableFacade<*>>,
+                            { takeBlank() },
+                            { card -> place(card) },
+                        )
                         nodeIds[node.id] = facade.id
                         createdCards.add(nodeCard(node.id, facade.id))
                     }
@@ -341,9 +347,12 @@ internal object IdNativeBackend {
                             ValueTypes.OPERATOR as IValueType<IValue>,
                             value as IValue,
                         )
-                        writeAndPlace(facade, ValueTypes.REGISTRY as IVariableFacadeHandler<IValueTypeVariableFacade<*>>) {
-                            takeBlank()
-                        } { card -> place(card) }
+                        writeAndPlace(
+                            facade,
+                            ValueTypes.REGISTRY as IVariableFacadeHandler<IValueTypeVariableFacade<*>>,
+                            { takeBlank() },
+                            { card -> place(card) },
+                        )
                         nodeIds[node.id] = facade.id
                         createdCards.add(nodeCard(node.id, facade.id))
                     }
@@ -358,9 +367,12 @@ internal object IdNativeBackend {
                             idOf(node.arguments[index], importIds, nodeIds, node.id)
                         }
                         val facade = OperatorVariableFacade(true, operator, arguments)
-                        writeAndPlace(facade, Operators.REGISTRY as IVariableFacadeHandler<IOperatorVariableFacade>) {
-                            takeBlank()
-                        } { card -> place(card) }
+                        writeAndPlace(
+                            facade,
+                            Operators.REGISTRY as IVariableFacadeHandler<IOperatorVariableFacade>,
+                            { takeBlank() },
+                            { card -> place(card) },
+                        )
                         nodeIds[node.id] = facade.id
                         createdCards.add(nodeCard(node.id, facade.id))
                     }
