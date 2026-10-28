@@ -47,17 +47,16 @@ internal class NameResolver(
         }
 
         for (let in lets.values) {
-            val names = LinkedHashSet<String>()
-            collectNames(let.expression, names)
+            val references = collectReferences(let.expression)
             val dependenciesForLet = ArrayList<String>()
-            for (name in names) {
+            for ((name, span) in references) {
                 if (name in lets) {
                     dependenciesForLet.add(name)
                 } else if (name !in inputs && environment.primitive(name) == null) {
                     add(
                         Diagnostic.error(
                             DiagnosticCode.E_UNKNOWN_NAME,
-                            findNameSpan(let.expression, name) ?: let.nameSpan,
+                            span,
                             "unknown name '$name'",
                         ),
                     )
@@ -67,14 +66,13 @@ internal class NameResolver(
         }
 
         for (output in outputs.values) {
-            val names = LinkedHashSet<String>()
-            collectNames(output.expression, names)
-            for (name in names) {
+            val references = collectReferences(output.expression)
+            for ((name, span) in references) {
                 if (name !in lets && name !in inputs && environment.primitive(name) == null) {
                     add(
                         Diagnostic.error(
                             DiagnosticCode.E_UNKNOWN_NAME,
-                            findNameSpan(output.expression, name) ?: output.nameSpan,
+                            span,
                             "unknown name '$name'",
                         ),
                     )
@@ -135,12 +133,20 @@ internal class NameResolver(
         outputs[declaration.name] = declaration
     }
 
-    private fun collectNames(expression: Expr, into: MutableSet<String>) {
+    /**
+     * Collects every referenced name with its first source span in one iterative traversal.
+     *
+     * Both dependency detection and unknown-name diagnostics use the result, so a name never
+     * triggers a rescan of the expression: work stays linear in the number of AST nodes even when
+     * [LanguageLimits.maxDiagnostics] drops most findings.
+     */
+    private fun collectReferences(expression: Expr): LinkedHashMap<String, SourceSpan> {
+        val references = LinkedHashMap<String, SourceSpan>()
         val pending = ArrayDeque<Expr>()
         pending.addLast(expression)
         while (pending.isNotEmpty()) {
             when (val node = pending.removeLast()) {
-                is Expr.Name -> into.add(node.name)
+                is Expr.Name -> if (!references.containsKey(node.name)) references[node.name] = node.span
                 is Expr.Call -> {
                     pending.addLast(node.callee)
                     for (argument in node.arguments.asReversed()) pending.addLast(argument)
@@ -171,39 +177,7 @@ internal class NameResolver(
                 is Expr.OperatorReference -> Unit
             }
         }
-    }
-
-    private fun findNameSpan(expression: Expr, name: String): SourceSpan? {
-        val pending = ArrayDeque<Expr>()
-        pending.addLast(expression)
-        while (pending.isNotEmpty()) {
-            when (val node = pending.removeLast()) {
-                is Expr.Name -> if (node.name == name) return node.span
-                is Expr.Call -> {
-                    pending.addLast(node.callee)
-                    for (argument in node.arguments.asReversed()) pending.addLast(argument)
-                }
-
-                is Expr.If -> {
-                    pending.addLast(node.condition)
-                    pending.addLast(node.thenBranch)
-                    pending.addLast(node.elseBranch)
-                }
-
-                is Expr.Binary -> {
-                    pending.addLast(node.left)
-                    pending.addLast(node.right)
-                }
-
-                is Expr.Negate -> pending.addLast(node.operand)
-                is Expr.ListLiteral -> {
-                    for (element in node.elements.asReversed()) pending.addLast(element)
-                }
-
-                else -> Unit
-            }
-        }
-        return null
+        return references
     }
 
     private fun detectCycles() {
@@ -552,7 +526,7 @@ internal class TypeChecker(
 
             BinaryOperator.EQUAL,
             BinaryOperator.NOT_EQUAL -> {
-                val common = freshVariable()
+                val common = freshConstrained(TypeConstraint.Equatable, expression.span)
                 unify(common, left, expression.left.span)
                 unify(common, right, expression.right.span)
                 LangTypes.BOOLEAN
