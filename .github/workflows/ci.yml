@@ -32,7 +32,6 @@ jobs:
         shell: bash
         run: >-
           bash ./gradlew --no-daemon
-          "-Dorg.gradle.java.home=$JAVA_HOME_21_X64"
           "-Porg.gradle.java.installations.paths=$JAVA_HOME_17_X64,$JAVA_HOME_21_X64"
           -Dhttp.proxyHost= -Dhttps.proxyHost=
           build
