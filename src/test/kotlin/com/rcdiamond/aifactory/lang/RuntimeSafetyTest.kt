@@ -79,7 +79,7 @@ class RuntimeSafetyTest {
         )
         assertEquals(
             DiagnosticCode.E_LIMIT,
-            failure("input xs : [Integer];\noutput total : Integer = reduce add xs 0;", 3).code,
+            failure("input xs : [Integer];\noutput ys : [Integer] = reduce append xs [];", 3).code,
         )
     }
 
