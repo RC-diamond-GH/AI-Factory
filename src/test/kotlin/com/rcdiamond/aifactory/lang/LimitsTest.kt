@@ -44,6 +44,15 @@ class LimitsTest {
     }
 
     @Test
+    fun `long operator chains are depth limited instead of overflowing`() {
+        val chain = (1..200).joinToString(" + ") { "1" }
+        compileTest(
+            "output x : Integer = $chain;",
+            limits = LanguageLimits(maxNestingDepth = 16),
+        ).assertFailure(DiagnosticCode.E_LIMIT)
+    }
+
+    @Test
     fun `list length and declaration count are limited`() {
         compileTest(
             "output x : [Integer] = [1, 2, 3];",

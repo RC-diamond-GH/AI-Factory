@@ -174,14 +174,20 @@ class LanguageParser(
     private fun parseOr(): Expr {
         val operands = ArrayList<Expr>()
         operands.add(parseAnd())
-        while (match(TokenKind.OR_OR)) operands.add(parseAnd())
+        while (match(TokenKind.OR_OR)) {
+            operands.add(parseAnd())
+            guardChain(operands.size)
+        }
         return foldRight(operands, BinaryOperator.OR)
     }
 
     private fun parseAnd(): Expr {
         val operands = ArrayList<Expr>()
         operands.add(parseCompare())
-        while (match(TokenKind.AND_AND)) operands.add(parseCompare())
+        while (match(TokenKind.AND_AND)) {
+            operands.add(parseCompare())
+            guardChain(operands.size)
+        }
         return foldRight(operands, BinaryOperator.AND)
     }
 
@@ -208,30 +214,39 @@ class LanguageParser(
     private fun parseCompose(): Expr {
         val operands = ArrayList<Expr>()
         operands.add(parseConcat())
-        while (match(TokenKind.GREATER_GREATER)) operands.add(parseConcat())
+        while (match(TokenKind.GREATER_GREATER)) {
+            operands.add(parseConcat())
+            guardChain(operands.size)
+        }
         return foldRight(operands, BinaryOperator.COMPOSE)
     }
 
     private fun parseConcat(): Expr {
         val operands = ArrayList<Expr>()
         operands.add(parseAdd())
-        while (match(TokenKind.PLUSPLUS)) operands.add(parseAdd())
+        while (match(TokenKind.PLUSPLUS)) {
+            operands.add(parseAdd())
+            guardChain(operands.size)
+        }
         return foldRight(operands, BinaryOperator.CONCAT)
     }
 
     private fun parseAdd(): Expr {
         var left = parseMul()
+        var operators = 0
         while (check(TokenKind.PLUS) || check(TokenKind.MINUS)) {
             val token = advance()
             val operator = if (token.kind == TokenKind.PLUS) BinaryOperator.PLUS else BinaryOperator.MINUS
             val right = parseMul()
             left = Expr.Binary(operator, left, right, SourceSpan(left.span.start, right.span.end))
+            guardChain(++operators)
         }
         return left
     }
 
     private fun parseMul(): Expr {
         var left = parseUnary()
+        var operators = 0
         while (check(TokenKind.STAR) || check(TokenKind.SLASH) || check(TokenKind.PERCENT)) {
             val token = advance()
             val operator = when (token.kind) {
@@ -241,6 +256,7 @@ class LanguageParser(
             }
             val right = parseUnary()
             left = Expr.Binary(operator, left, right, SourceSpan(left.span.start, right.span.end))
+            guardChain(++operators)
         }
         return left
     }
@@ -468,6 +484,21 @@ class LanguageParser(
             return clamp(value, BigInteger.ONE, INT_MAX).toInt()
         }
         return value.toInt()
+    }
+
+    /**
+     * Right-associative chains are folded iteratively during parsing, but the resulting AST is
+     * nested. Cap chain length so later recursive type checking/lowering cannot overflow the stack
+     * even when token limits are generous.
+     */
+    private fun guardChain(length: Int) {
+        if (length > limits.maxNestingDepth) {
+            throw abort(
+                DiagnosticCode.E_LIMIT,
+                current().span,
+                "operator chain depth exceeds the limit ${limits.maxNestingDepth}",
+            )
+        }
     }
 
     private fun foldRight(operands: List<Expr>, operator: BinaryOperator): Expr {
