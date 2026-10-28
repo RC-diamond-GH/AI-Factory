@@ -4,6 +4,11 @@ import com.rcdiamond.aifactory.addon.ae2.integrated_dynamics.dsl.IdDiagnosticCod
 import com.rcdiamond.aifactory.addon.ae2.integrated_dynamics.dsl.IdDslType
 import com.rcdiamond.aifactory.addon.ae2.integrated_dynamics.dsl.IdDslTypes
 import com.rcdiamond.aifactory.addon.ae2.integrated_dynamics.dsl.IdFiniteness
+import com.rcdiamond.aifactory.addon.ae2.integrated_dynamics.dsl.IdNativeOperator
+import com.rcdiamond.aifactory.addon.ae2.integrated_dynamics.dsl.IdNativeSignature
+import com.rcdiamond.aifactory.lang.LangType
+import com.rcdiamond.aifactory.lang.TypeConstraint
+import com.rcdiamond.aifactory.lang.TypeScheme
 import net.minecraft.resources.ResourceLocation
 import org.cyclops.integrateddynamics.api.evaluate.operator.IOperator
 import org.cyclops.integrateddynamics.api.evaluate.variable.IValueType
@@ -114,39 +119,37 @@ internal object IdNativeCatalog {
     }
 
     /**
-     * Whether [operator] may be stored as a native operator constant node.
+     * A native operator constant's declared Fn signature must unify with the pinned catalog
+     * signature and with the live operator's declared category types.
      *
-     * The higher-order combinators expect operator values and their output is an operator; storing
-     * one as a constant would silently lose the signature the plan is supposed to prove, so the
-     * design requires them to appear only as an operation/`call` node.
+     * `operator_map`/`filter`/`pipe`/... have a fixed signature even though they take and return
+     * operator values, so they are valid native constants. Only `apply`/`apply0` are not emitted as
+     * native constants by the compiler; a native node for those is rejected. `flip` is checked by
+     * its structural swap rule.
      */
-    fun isHigherOrder(operator: IOperator): Boolean =
-        operator === Operators.OPERATOR_APPLY ||
-            operator === Operators.OPERATOR_APPLY_0 ||
-            operator === Operators.OPERATOR_APPLY_2 ||
-            operator === Operators.OPERATOR_APPLY_3 ||
-            operator === Operators.OPERATOR_APPLY_N ||
-            operator === Operators.OPERATOR_MAP ||
-            operator === Operators.OPERATOR_FILTER ||
-            operator === Operators.OPERATOR_CONJUNCTION ||
-            operator === Operators.OPERATOR_DISJUNCTION ||
-            operator === Operators.OPERATOR_NEGATION ||
-            operator === Operators.OPERATOR_PIPE ||
-            operator === Operators.OPERATOR_PIPE2 ||
-            operator === Operators.OPERATOR_FLIP ||
-            operator === Operators.OPERATOR_REDUCE ||
-            operator === Operators.OPERATOR_REDUCE1
-
-    /**
-     * A native operator constant's declared Fn signature must be a concrete instance of the real
-     * operator's declared input/output categories.
-     */
-    fun checkNativeConstant(operator: IOperator, declared: IdDslType.FunctionType) {
-        if (isHigherOrder(operator)) {
-            throw IdNativeContractError(
-                IdDiagnosticCode.E_NATIVE_CONTRACT,
-                "higher-order operator '${operator.uniqueName}' must be used as a call, not a native constant",
-            )
+    fun checkNativeConstant(
+        operator: IOperator,
+        declared: IdDslType.FunctionType,
+        contract: IdNativeOperator,
+    ) {
+        when (val signature = contract.signature) {
+            is IdNativeSignature.Fixed -> {
+                if (!schemeMatches(signature.scheme, declared)) {
+                    throw IdNativeContractError(
+                        IdDiagnosticCode.E_FN_SIGNATURE,
+                        "operator '${operator.uniqueName}' concrete type ${declared.display()} does not match " +
+                            "the pinned catalog signature",
+                    )
+                }
+            }
+            IdNativeSignature.ApplyOne, IdNativeSignature.ApplyZero -> {
+                throw IdNativeContractError(
+                    IdDiagnosticCode.E_NATIVE_CONTRACT,
+                    "operator '${operator.uniqueName}' is an application operator and must be a call, not a " +
+                        "native constant",
+                )
+            }
+            IdNativeSignature.Flip -> checkFlip(declared, operator)
         }
         val inputs = operator.inputTypes
         if (inputs.size != declared.parameters.size) {
@@ -171,6 +174,85 @@ internal object IdNativeCatalog {
             throw IdNativeContractError(
                 IdDiagnosticCode.E_FN_SIGNATURE,
                 "operator '${operator.uniqueName}' output is incompatible with ${declared.result.display()}",
+            )
+        }
+    }
+
+    private fun schemeMatches(scheme: TypeScheme, declared: IdDslType.FunctionType): Boolean {
+        val shape = scheme.type as? LangType.FunctionType ?: return false
+        if (shape.parameters.size != declared.parameters.size) return false
+        val bindings = HashMap<Int, IdDslType>()
+        if (!matchType(shape.result, declared.result, bindings)) return false
+        for (index in shape.parameters.indices) {
+            if (!matchType(shape.parameters[index], declared.parameters[index], bindings)) return false
+        }
+        for (constraint in scheme.constraints) {
+            val bound = bindings[constraint.variableId] ?: return false
+            if (!constraintAccepts(constraint.constraint, bound)) return false
+        }
+        return true
+    }
+
+    private fun matchType(
+        expected: LangType,
+        actual: IdDslType,
+        bindings: MutableMap<Int, IdDslType>,
+    ): Boolean = when (expected) {
+        is LangType.Variable -> {
+            val previous = bindings[expected.id]
+            if (previous == null) {
+                bindings[expected.id] = actual
+                true
+            } else {
+                previous == actual
+            }
+        }
+        is LangType.Nominal -> actual is IdDslType.Scalar && actual.name == expected.name
+        is LangType.ListType -> actual is IdDslType.ListType && matchType(expected.element, actual.element, bindings)
+        is LangType.FunctionType -> {
+            val fn = actual as? IdDslType.FunctionType
+            fn != null &&
+                fn.parameters.size == expected.parameters.size &&
+                expected.parameters.indices.all { index ->
+                    matchType(expected.parameters[index], fn.parameters[index], bindings)
+                } &&
+                matchType(expected.result, fn.result, bindings)
+        }
+    }
+
+    private fun constraintAccepts(constraint: TypeConstraint, type: IdDslType): Boolean = when (constraint) {
+        TypeConstraint.Numeric -> type is IdDslType.Scalar && type.name in NUMERIC
+        TypeConstraint.Concat ->
+            (type is IdDslType.Scalar && type.name == "String") || type is IdDslType.ListType
+        TypeConstraint.Equatable -> type !is IdDslType.FunctionType
+        is TypeConstraint.Named -> false
+    }
+
+    private fun checkFlip(declared: IdDslType.FunctionType, operator: IOperator) {
+        val inner = declared.parameters.singleOrNull() as? IdDslType.FunctionType
+            ?: throw IdNativeContractError(
+                IdDiagnosticCode.E_FN_SIGNATURE,
+                "operator '${operator.uniqueName}' native constant must be Fn(Fn(a,b,...)->r)->Fn(b,a,...)->r",
+            )
+        if (inner.parameters.size < 2) {
+            throw IdNativeContractError(
+                IdDiagnosticCode.E_FN_SIGNATURE,
+                "operator '${operator.uniqueName}' needs an inner function with at least two parameters",
+            )
+        }
+        val outer = declared.result as? IdDslType.FunctionType
+            ?: throw IdNativeContractError(
+                IdDiagnosticCode.E_FN_SIGNATURE,
+                "operator '${operator.uniqueName}' native constant must return a function",
+            )
+        val swapped = inner.parameters.toMutableList()
+        val first = swapped[0]
+        swapped[0] = swapped[1]
+        swapped[1] = first
+        if (outer.parameters != swapped || outer.result != inner.result) {
+            throw IdNativeContractError(
+                IdDiagnosticCode.E_FN_SIGNATURE,
+                "operator '${operator.uniqueName}' native constant must swap the first two inner parameters",
             )
         }
     }

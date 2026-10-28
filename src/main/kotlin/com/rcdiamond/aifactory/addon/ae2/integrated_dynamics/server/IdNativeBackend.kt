@@ -481,13 +481,13 @@ internal object IdNativeBackend {
                 }
                 is IdPlanNode.Native -> {
                     val operator = resolveOperator(node.operator, node.id)
-                    if (operator.isHigherOrder()) {
-                        throw IdBackendError.validate(
+                    val contract = com.rcdiamond.aifactory.addon.ae2.integrated_dynamics.dsl.IdOperatorCatalog
+                        .resolveNative(node.operator)
+                        ?: throw IdBackendError.validate(
                             IdDiagnosticCode.E_NATIVE_CONTRACT,
-                            "operator '${node.operator}' must be a call, not a native constant",
+                            "operator '${node.operator}' is not in the pinned DSL operator catalog",
                             node = node.id,
                         )
-                    }
                     val declared = node.type as? IdDslType.FunctionType
                         ?: throw IdBackendError.validate(
                             IdDiagnosticCode.E_FN_SIGNATURE,
@@ -495,7 +495,7 @@ internal object IdNativeBackend {
                             node = node.id,
                         )
                     try {
-                        IdNativeCatalog.checkNativeConstant(operator, declared)
+                        IdNativeCatalog.checkNativeConstant(operator, declared, contract)
                     } catch (error: IdNativeContractError) {
                         throw IdBackendError.validate(error.code, error.message ?: "native operator mismatch", node = node.id, hint = error.hint)
                     }
@@ -694,8 +694,6 @@ internal object IdNativeBackend {
         val message = failure.message?.replace('\n', ' ')?.trim().orEmpty()
         return if (message.isEmpty()) failure.javaClass.simpleName else message.take(256)
     }
-
-    private fun IOperator.isHigherOrder(): Boolean = IdNativeCatalog.isHigherOrder(this)
 
     /** The plan's node type and literals prove list finiteness; otherwise stay unknown. */
     private fun finitenessOfNode(type: IdDslType, value: IValue): IdFiniteness =
