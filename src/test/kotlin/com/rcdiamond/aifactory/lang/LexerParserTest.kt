@@ -144,6 +144,14 @@ class LexerParserTest {
     }
 
     @Test
+    fun `user lambdas and parameter definitions are rejected`() {
+        compileTest("let f x = x;\noutput result : Integer = 1;")
+            .assertFailure(DiagnosticCode.E_SYNTAX)
+        compileTest("output result : Integer = \\x -> x;")
+            .assertFailure(DiagnosticCode.E_SYNTAX)
+    }
+
+    @Test
     fun `block comments are not part of the language`() {
         compileTest("output x : Integer = /* nope */ 1;")
             .assertFailure(DiagnosticCode.E_SYNTAX)

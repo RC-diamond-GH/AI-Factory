@@ -76,6 +76,16 @@ class TypeCheckTest {
     }
 
     @Test
+    fun `output ports are not variables`() {
+        compileTest(
+            """
+            output first : Integer = 1;
+            output second : Integer = first;
+            """.trimIndent(),
+        ).assertFailure(DiagnosticCode.E_UNKNOWN_NAME)
+    }
+
+    @Test
     fun `unknown names, missing output and unknown types are diagnosed`() {
         compileTest("output result : Integer = missing;")
             .assertFailure(DiagnosticCode.E_UNKNOWN_NAME)
