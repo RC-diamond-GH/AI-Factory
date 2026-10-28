@@ -30,7 +30,7 @@ sealed interface IrOperation {
     /** External input binding with the declaration name. */
     data class Input(val name: String) : IrOperation
 
-    /** A primitive used as a function value at this node's instantiated signature. */
+    /** An environment primitive at this node's concrete type (a function value or a named constant). */
     data class Primitive(val name: String) : IrOperation
 
     /** `op "..."`; type comes from the environment's operator catalog. */
@@ -81,15 +81,15 @@ sealed interface IrOperation {
 }
 
 sealed interface LiteralValue {
-    data class Boolean(val value: Boolean) : LiteralValue
+    data class BooleanLiteral(val value: Boolean) : LiteralValue
 
-    data class Integer(val value: Int) : LiteralValue
+    data class IntegerLiteral(val value: Int) : LiteralValue
 
-    data class Long(val value: Long) : LiteralValue
+    data class LongLiteral(val value: Long) : LiteralValue
 
-    data class Double(val value: Double) : LiteralValue
+    data class DoubleLiteral(val value: Double) : LiteralValue
 
-    data class String(val value: String) : LiteralValue
+    data class StringLiteral(val value: String) : LiteralValue
 }
 
 data class TypedNode(

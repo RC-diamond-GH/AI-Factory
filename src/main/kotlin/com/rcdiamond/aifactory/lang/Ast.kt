@@ -47,8 +47,7 @@ enum class BinaryOperator(val symbol: String) {
     GREATER(">"),
     GREATER_EQUAL(">="),
     AND("&&"),
-    OR("||"),
-    ;
+    OR("||");
 
     val isArithmetic: Boolean
         get() = this == PLUS || this == MINUS || this == STAR || this == SLASH || this == PERCENT

@@ -325,7 +325,7 @@ sealed interface IrRef { data class Node(val id: Int) }
 |节点|语义|
 |---|---|
 |`Input(name)`|外部绑定；类型来自 `input` 声明|
-|`Primitive(name)`|该出现处实例化的原语函数值；`TypedNode.type` 是其函数类型|
+|`Primitive(name)`|该出现处实例化的环境原语；`TypedNode.type` 是函数类型或命名常量类型|
 |`OperatorLiteral(id)`|`op "id"` 的函数值；类型由目录 scheme 特化|
 |`Constant(LiteralValue)`|Boolean/Integer/Long/Double/String 字面量|
 |`ListLiteral(elements)`|同质列表；元素可以是动态节点|
@@ -379,7 +379,7 @@ if (evaluation.success) {
 
 - 按需求值，memoize 节点；`Choice`、`&&`、`||` 只求值所需分支。
 - 输入必须提供并匹配声明类型；缺失/类型不符报 `E_INPUT_BINDING`。
-- 缺失原语运行时、`op` 字面量报 `E_NATIVE_CONTRACT`；原生 `op` 需要原生后端。
+- 缺失原语运行时、`op` 字面量报 `E_NATIVE_CONTRACT`；原生 `op` 需要原生后端。命名常量原语以空参数列表调用运行时，并校验结果类型。
 - 普通 Apply 参数严格求值；因此纯运行时只支持严格原语。ID 的 `constant` 这类非严格原语不由纯后端模拟。
 - 求值步骤/深度/列表物化数量受 `EvaluationLimits` 控制，超限报 `E_LIMIT`。
 - 求值异常（除零、越界等）转换为 `E_EVALUATION` 诊断并附带节点源码范围。

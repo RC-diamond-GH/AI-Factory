@@ -238,6 +238,28 @@ class PureEvaluatorTest {
     }
 
     @Test
+    fun `nominal constant primitives evaluate through the runtime`() {
+        val environment = LanguageEnvironment.basic().builder()
+            .addNominalType("Item")
+            .addPrimitive(
+                "emptyItem",
+                TypeScheme(LangTypes.nominal("Item")),
+            )
+            .build()
+        val primitives = mapOf(
+            "emptyItem" to PurePrimitive { _ ->
+                PureValue.ObjectValue(ObjectKind.ITEM, "Item", emptyList())
+            },
+        )
+        val result = evaluateTest(
+            "output value : Item = emptyItem;",
+            environment = environment,
+            primitives = primitives,
+        )
+        assertTrue(result.outputs["value"] is PureValue.ObjectValue)
+    }
+
+    @Test
     fun `get out of range is an evaluation error`() {
         evaluateFailure(
             """
