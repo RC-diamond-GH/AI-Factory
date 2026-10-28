@@ -16,8 +16,10 @@ import net.minecraft.network.chat.Component
 import java.util.UUID
 
 /** Locally reachable terminal browser. Every mutation remains server-authoritative. */
-class SharedSessionSelectionScreen(private val terminal: JsonObject) :
-    Screen(Component.translatable("ai_factory.shared.title")) {
+class SharedSessionSelectionScreen(
+    private val terminal: JsonObject,
+    private val runtime: SharedAgentSessionRuntime,
+) : Screen(Component.translatable(runtime.profile.browserTitleKey)) {
     private var requested = false
     private var loading = true
     private var pendingAction = false
@@ -46,11 +48,11 @@ class SharedSessionSelectionScreen(private val terminal: JsonObject) :
     override fun added() {
         super.added()
         openingChat = false
-        ClientSharedSessionRuntime.onScreenOpened()
+        runtime.onScreenOpened()
     }
 
     override fun removed() {
-        if (!openingChat) ClientSharedSessionRuntime.onScreenClosed()
+        if (!openingChat) runtime.onScreenClosed()
         super.removed()
     }
 
@@ -70,7 +72,8 @@ class SharedSessionSelectionScreen(private val terminal: JsonObject) :
                 selectedId = selected?.id
                 confirmDelete = null
                 refreshButtons()
-            }, { selected -> openSession(selected) }))
+            }, { selected -> openSession(selected) },
+            if (runtime.profile.usesCells) "ai_factory.shared.row_details" else "ai_factory.id.sessions.row_details"))
         titleInput = FlatEditBox(font, right, 68, 132, 20, Component.translatable("ai_factory.shared.session_title"))
         titleInput.setMaxLength(64)
         titleInput.setHint(Component.translatable("ai_factory.shared.optional_title"))
@@ -80,6 +83,7 @@ class SharedSessionSelectionScreen(private val terminal: JsonObject) :
         cellButton = button(right, 94, 132, Component.literal(cellLabel(cell))) {
             if (cells.isNotEmpty()) { cellIndex = (cellIndex + 1) % cells.size; rebuildWidgets() }
         }
+        cellButton.visible = runtime.profile.usesCells
         create = button(right, 120, 132, Component.translatable("ai_factory.shared.create")) { createSession(cell) }
         open = button(right, height - 76, 132, Component.translatable("ai_factory.shared.open")) {
             val confirmation = confirmDelete
@@ -120,8 +124,8 @@ class SharedSessionSelectionScreen(private val terminal: JsonObject) :
         val idle = !loading && !pendingAction
         val selected = sessions.selected
         open.active = idle && selected != null
-        delete.active = idle && selected != null && !(ClientSharedSessionRuntime.isActive(selected.id) && ClientSharedSessionRuntime.busy)
-        create.active = idle && list?.cells?.isNotEmpty() == true && !ClientSharedSessionRuntime.hudRunning()
+        delete.active = idle && selected != null && !(runtime.isActive(selected.id) && runtime.busy)
+        create.active = idle && (list?.cells?.isNotEmpty() == true || list?.storageId != null) && !runtime.hudRunning()
         refresh.active = idle
         cellButton.active = idle && (list?.cells?.size ?: 0) > 1
         sessions.active = idle
@@ -135,7 +139,9 @@ class SharedSessionSelectionScreen(private val terminal: JsonObject) :
         TerminalUi.background(graphics, width, height)
         graphics.drawString(font, title, 16, 14, TerminalUi.TEXT, false)
         val message = error ?: if (loading) Component.translatable("ai_factory.shared.loading").string else
-            Component.translatable("ai_factory.shared.counts", list?.sessions?.size ?: 0, list?.cells?.size ?: 0).string
+            if (runtime.profile.usesCells)
+                Component.translatable("ai_factory.shared.counts", list?.sessions?.size ?: 0, list?.cells?.size ?: 0).string
+            else Component.translatable("ai_factory.id.sessions.counts", list?.sessions?.size ?: 0).string
         graphics.drawString(font, font.plainSubstrByWidth(message, width - 32), 16, 34,
             if (error != null) TerminalUi.ERROR else TerminalUi.MUTED, false)
         graphics.drawString(font, Component.translatable("ai_factory.shared.new_conversation"), sidebarX, 54, TerminalUi.ACCENT, false)
@@ -160,7 +166,7 @@ class SharedSessionSelectionScreen(private val terminal: JsonObject) :
         error = null
         confirmDelete = null
         refreshButtons()
-        ClientSharedSessionRuntime.list(terminal) { result, failure ->
+        runtime.list(terminal) { result, failure ->
             if (Minecraft.getInstance().screen !== this) return@list
             loading = false
             error = failure
@@ -170,11 +176,12 @@ class SharedSessionSelectionScreen(private val terminal: JsonObject) :
     }
 
     private fun createSession(cell: SharedCellInfo?) {
-        if (cell == null || pendingAction || loading) return
+        val storageId = cell?.id ?: list?.storageId ?: return
+        if (pendingAction || loading) return
         pendingAction = true
         error = null
         refreshButtons()
-        ClientSharedSessionRuntime.create(terminal, cell.id, titleInput.value) { info, failure ->
+        runtime.create(terminal, storageId, titleInput.value) { info, failure ->
             pendingAction = false
             if (!acceptCallback(failure)) return@create
             if (info != null) openChat()
@@ -186,7 +193,7 @@ class SharedSessionSelectionScreen(private val terminal: JsonObject) :
         pendingAction = true
         error = null
         refreshButtons()
-        ClientSharedSessionRuntime.open(terminal, session) { failure ->
+        runtime.open(terminal, session) { failure ->
             pendingAction = false
             if (acceptCallback(failure)) openChat()
         }
@@ -194,7 +201,7 @@ class SharedSessionSelectionScreen(private val terminal: JsonObject) :
 
     private fun acceptCallback(failure: String?): Boolean {
         if (Minecraft.getInstance().screen !== this) {
-            if (failure == null && Minecraft.getInstance().screen !is SharedSessionSelectionScreen) ClientSharedSessionRuntime.onScreenClosed()
+            if (failure == null && Minecraft.getInstance().screen !is SharedSessionSelectionScreen) runtime.onScreenClosed()
             return false
         }
         error = failure
@@ -207,7 +214,7 @@ class SharedSessionSelectionScreen(private val terminal: JsonObject) :
         pendingAction = true
         error = null
         refreshButtons()
-        ClientSharedSessionRuntime.delete(terminal, session) { failure ->
+        runtime.delete(terminal, session) { failure ->
             pendingAction = false
             if (Minecraft.getInstance().screen !== this) return@delete
             confirmDelete = null
@@ -221,8 +228,8 @@ class SharedSessionSelectionScreen(private val terminal: JsonObject) :
     private fun openChat() {
         requested = false // Re-entering the browser fetches fresh titles and storage usage.
         openingChat = true // Internal navigation must not briefly release an idle lease.
-        Minecraft.getInstance().setScreen(AgentChatScreen(ClientSharedSessionRuntime,
-            Component.translatable("ai_factory.shared.chat_title"), this))
+        Minecraft.getInstance().setScreen(AgentChatScreen(runtime,
+            Component.translatable(runtime.profile.chatTitleKey), this))
     }
 
     private fun cellLabel(cell: SharedCellInfo?): String = if (cell == null)

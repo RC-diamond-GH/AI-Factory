@@ -19,6 +19,10 @@ object AIFactory {
             Class.forName("com.rcdiamond.aifactory.addon.ae2.Ae2Addon")
                 .getMethod("initialize").invoke(null)
         }
+        if (ModList.get().isLoaded("integrateddynamics")) {
+            Class.forName("com.rcdiamond.aifactory.addon.ae2.integrated_dynamics.IntegratedDynamicsAddon")
+                .getMethod("initialize").invoke(null)
+        }
         MOD_BUS.addListener<FMLCommonSetupEvent> {
             it.enqueueWork {
                 GameActionNetwork.register()

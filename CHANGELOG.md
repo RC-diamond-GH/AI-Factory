@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased — independent Integrated Dynamics Agent
+
+- Add the optional `ai_factory:integrated_dynamics_terminal` block, item, creative tab, recipe, models, texture and UUID-preserving loot.
+- Join ID through its native cable-connectable block/entity and network-element provider lifecycle; do not infer membership from an adjacent cable.
+- Persist terminal/session UUID references on the block and store conversation bodies separately from ME cells. Add independent ID leases, session CRUD, client history, background turns and HUD.
+- Reuse the shared client lifecycle through per-addon composition roots; register only `id_network_info`, `id_list_parts` and `id_list_variables` for the ID agent.
+- Inspect loaded native network metadata and definition references with strict bounded pagination; do not evaluate/read values, compile DSL, write cards or change logistics.
+- Target Forge 1.20.1 / ID **1.31.3**, CyclopsCore **1.20.0**, CommonCapabilities **2.9.7**; optional ID dependency, no AE2 requirement and no bundled ID libraries.
+- Shared-session protocol is now **6**; both sides must use the same build. ME storage and authorization remain separate.
+- Verification: `build`, `jarJar` and `reobfJarJar` succeeded; **288** local tests passed, including **14** ID regressions, with no failures/errors/skips. Standalone session/file-reload and argument smoke passed; five common ID classes linked with AE2/GuideME removed from the classpath. Release checks confirmed Java 17, expanded metadata, complete ID resources and translation parity.
+- No Minecraft client/server or paid model API was started. Actual network formation/splitting, wireless links, block drops/replacement, rendering and multiplayer remain unverified. Forge's standard `BlockEntityType.Builder.build(null)` produces one Kotlin Java-nullness warning; Gradle also reports its existing Gradle 9 deprecation notice.
+
 ## Unreleased — optional JEI recipe queries
 
 - Add `jei_find_ingredients` and `jei_query_recipes` to both regular and ME agents only when JEI is installed on the client.

@@ -33,6 +33,13 @@ ordering="AFTER"
 side="BOTH"
 
 [[dependencies.${mod_id}]]
+modId="integrateddynamics"
+mandatory=false
+versionRange="[1.31.3,)"
+ordering="AFTER"
+side="BOTH"
+
+[[dependencies.${mod_id}]]
 modId="jei"
 mandatory=false
 versionRange="[15.62.0,16)"

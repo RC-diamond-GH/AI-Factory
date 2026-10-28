@@ -1,0 +1,29 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    " M ",
+    "VLV",
+    " M "
+  ],
+  "key": {
+    "M": {
+      "item": "integrateddynamics:crystalized_menril_chunk"
+    },
+    "V": {
+      "item": "integrateddynamics:variable"
+    },
+    "L": {
+      "item": "integrateddynamics:logic_programmer"
+    }
+  },
+  "result": {
+    "item": "ai_factory:integrated_dynamics_terminal"
+  },
+  "conditions": [
+    {
+      "type": "forge:mod_loaded",
+      "modid": "integrateddynamics"
+    }
+  ]
+}

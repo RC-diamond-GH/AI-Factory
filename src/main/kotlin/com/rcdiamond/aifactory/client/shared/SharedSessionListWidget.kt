@@ -18,6 +18,7 @@ class SharedSessionListWidget(
     private val font: Font,
     private val onSelection: (SharedSessionInfo?) -> Unit,
     private val onOpen: (SharedSessionInfo) -> Unit,
+    private val rowDetailsKey: String,
 ) : AbstractWidget(x, y, width, height, Component.translatable("ai_factory.shared.conversations")) {
     private var sessions: List<SharedSessionInfo> = emptyList()
     private class Row(val title: String, val detail: String)
@@ -35,8 +36,8 @@ class SharedSessionListWidget(
         sessions = values
         rows = values.map { entry ->
             Row(font.plainSubstrByWidth(entry.title, width - 22),
-                font.plainSubstrByWidth(Component.translatable("ai_factory.shared.row_details",
-                    entry.tokens, entry.cellId.toString().take(8)).string, width - 22))
+                font.plainSubstrByWidth(Component.translatable(rowDetailsKey,
+                    entry.tokens, entry.storageId.toString().take(8)).string, width - 22))
         }
         selectedId = preferred?.takeIf { id -> values.any { it.id == id } }
         scroll = scroll.coerceIn(0, maxScroll)

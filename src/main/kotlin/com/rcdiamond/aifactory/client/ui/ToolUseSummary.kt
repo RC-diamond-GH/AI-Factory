@@ -44,6 +44,9 @@ object ToolUseSummary {
     private const val TOOL_EXECUTE_COMMAND = "execute_command"
     private const val TOOL_JEI_FIND_INGREDIENTS = "jei_find_ingredients"
     private const val TOOL_JEI_QUERY_RECIPES = "jei_query_recipes"
+    private const val TOOL_ID_NETWORK_INFO = "id_network_info"
+    private const val TOOL_ID_LIST_PARTS = "id_list_parts"
+    private const val TOOL_ID_LIST_VARIABLES = "id_list_variables"
 
     private const val ACTION_ENCODE_INSTALL = "encode_install"
 
@@ -304,7 +307,8 @@ object ToolUseSummary {
         val key = when (name) {
             TOOL_READ_INVENTORY, TOOL_ITEM_DETAILS, TOOL_CRAFTING_PLAN, TOOL_REQUEST_CRAFTING,
             TOOL_MANAGE_PATTERNS, TOOL_GIVE_ITEM, TOOL_EXECUTE_COMMAND,
-            TOOL_JEI_FIND_INGREDIENTS, TOOL_JEI_QUERY_RECIPES -> "ai_factory.tool.name.$name"
+            TOOL_JEI_FIND_INGREDIENTS, TOOL_JEI_QUERY_RECIPES,
+            TOOL_ID_NETWORK_INFO, TOOL_ID_LIST_PARTS, TOOL_ID_LIST_VARIABLES -> "ai_factory.tool.name.$name"
             else -> null
         }
         if (key != null) return text(key, NO_ARGS)
