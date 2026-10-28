@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased — CI and development loop
+
+- Build every pull request and main-branch merge with JDK 21 / Java 17, run default tests without paid API calls, inspect the reobfuscated release JAR, and upload build artifacts.
+- Document the required plan → commit → CI → Code Review → merge → CI loop in [开发闭环](documents/开发闭环.md) and the PR checklist.
+
 ## Unreleased — independent Integrated Dynamics Agent
 
 - Add the optional `ai_factory:integrated_dynamics_terminal` block, item, creative tab, recipe, models, texture and UUID-preserving loot.

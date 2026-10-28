@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build and package (Java 17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install compile and Gradle JVMs
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: |
+            17
+            21
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Test and build reobfuscated release
+        shell: bash
+        run: >-
+          bash ./gradlew --no-daemon
+          "-Porg.gradle.java.installations.paths=$JAVA_HOME_17_X64,$JAVA_HOME_21_X64"
+          -Dhttp.proxyHost= -Dhttps.proxyHost=
+          build
+      - name: Check release contents
+        shell: python
+        run: |
+          from pathlib import Path
+          from zipfile import ZipFile
+          jars = [p for p in Path('build/libs').glob('ai_factory-*.jar')
+                  if not p.name.endswith(('-plain.jar', '-sources.jar'))]
+          assert len(jars) == 1, f'Expected one release JAR, found {jars}'
+          with ZipFile(jars[0]) as jar:
+              names = set(jar.namelist())
+              assert 'com/rcdiamond/aifactory/AIFactory.class' in names
+              assert 'LICENSE' in names
+              assert 'META-INF/jarjar/metadata.json' in names
+              assert any(n.endswith('jtokkit-1.1.0.jar') for n in names)
+              metadata = jar.read('META-INF/mods.toml').decode('utf-8')
+              assert '${' not in metadata, 'Unexpanded mod metadata'
+              assert 'kotlinforforge' in metadata
+          print(f'Checked release: {jars[0]} ({jars[0].stat().st_size} bytes)')
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: |
+            build/reports/tests/
+            build/test-results/test/
+          if-no-files-found: ignore
+      - name: Upload release JAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-jar
+          path: |
+            build/libs/ai_factory-*.jar
+            !build/libs/*-plain.jar
+            !build/libs/*-sources.jar
+          if-no-files-found: error
