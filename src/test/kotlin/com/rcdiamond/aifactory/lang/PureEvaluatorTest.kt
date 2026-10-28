@@ -197,7 +197,7 @@ class PureEvaluatorTest {
             )
             .build()
         val primitives = StandardScalarRuntime.primitives + (
-            "zero" to PurePrimitive { PureValue.IntegerValue(42) }
+            "zero" to PurePrimitive { _ -> PureValue.IntegerValue(42) }
             )
         val result = evaluateTest(
             "output answer : Integer = call0 zero;",

@@ -749,7 +749,10 @@ internal class TypeChecker(
         return type
     }
 
-    private fun validateNominalTypes(type: LangType, span: SourceSpan) {
+    private fun validateNominalTypes(type: LangType, span: SourceSpan, depth: Int = 0) {
+        if (depth > limits.maxTypeDepth) {
+            fail(DiagnosticCode.E_LIMIT, span, "type nesting exceeds the limit ${limits.maxTypeDepth}")
+        }
         when (type) {
             is LangType.Nominal -> if (!environment.hasType(type.name)) {
                 fail(
@@ -760,10 +763,10 @@ internal class TypeChecker(
             }
 
             is LangType.Variable -> Unit
-            is LangType.ListType -> validateNominalTypes(type.element, span)
+            is LangType.ListType -> validateNominalTypes(type.element, span, depth + 1)
             is LangType.FunctionType -> {
-                type.parameters.forEach { validateNominalTypes(it, span) }
-                validateNominalTypes(type.result, span)
+                type.parameters.forEach { validateNominalTypes(it, span, depth + 1) }
+                validateNominalTypes(type.result, span, depth + 1)
             }
         }
     }
