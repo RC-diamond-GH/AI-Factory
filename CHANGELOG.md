@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased — shared functional language framework
+
+- Add the Minecraft/Forge-independent `lang` module: source-aware parser, monomorphic types, host-injected primitive contracts, bounded dependency checking and deterministic typed graphs.
+- Provide an extensible backend contract and a strict pure evaluator with higher-order lists, partial application and language-level conditional/Boolean short-circuiting.
+- Document syntax, extension APIs, semantics and limits in [共享类 Haskell 解释器](documents/共享类Haskell解释器.md).
+- Review remediation bounds cumulative AST depth, cross-let checking/lowering traversal, name-diagnostic work, closure applications and list/string materialization; rejects function equality and defines JVM floating min/max behavior.
+- Verification: original and adversarial CLI cases passed after the first fixes; cross-let forward/reversed stack-overflow cases were additionally reproduced and covered by regression tests. `build` passed **396** tests including **108** language cases, with zero failures/errors/skips. No game or paid model API was started.
+
 ## Unreleased — CI and development loop
 
 - Build every pull request and main-branch merge with JDK 21 / Java 17, run default tests without paid API calls, inspect the reobfuscated release JAR, and upload build artifacts.
