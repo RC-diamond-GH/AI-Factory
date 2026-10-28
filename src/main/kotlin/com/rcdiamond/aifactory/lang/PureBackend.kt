@@ -463,13 +463,22 @@ private class EvaluationRun(
                     node.span,
                     "no pure runtime registered for primitive '${operation.name}'",
                 )
-            val signature = node.type as? LangType.FunctionType
-                ?: fail(
-                    DiagnosticCode.E_NATIVE_CONTRACT,
-                    node.span,
-                    "primitive '${operation.name}' is not typed as a function",
-                )
-            PureValue.FunctionValue.ofPrimitive(signature, primitive)
+            when (val type = node.type) {
+                is LangType.FunctionType -> PureValue.FunctionValue.ofPrimitive(type, primitive)
+                else -> {
+                    // A named constant primitive (for example an empty domain object) has no
+                    // parameters. The runtime supplies its value with an empty argument list.
+                    val value = primitive.invoke(emptyList())
+                    if (!value.matches(type)) {
+                        fail(
+                            DiagnosticCode.E_TARGET_CONTRACT,
+                            node.span,
+                            "constant primitive '${operation.name}' produced a value that does not match ${type.display()}",
+                        )
+                    }
+                    value
+                }
+            }
         }
 
         is IrOperation.OperatorLiteral -> fail(
@@ -580,11 +589,11 @@ private class EvaluationRun(
     }
 
     private fun constant(value: LiteralValue): PureValue = when (value) {
-        is LiteralValue.Boolean -> PureValue.BooleanValue(value.value)
-        is LiteralValue.Integer -> PureValue.IntegerValue(value.value)
-        is LiteralValue.Long -> PureValue.LongValue(value.value)
-        is LiteralValue.Double -> PureValue.DoubleValue(value.value)
-        is LiteralValue.String -> PureValue.StringValue(value.value)
+        is LiteralValue.BooleanLiteral -> PureValue.BooleanValue(value.value)
+        is LiteralValue.IntegerLiteral -> PureValue.IntegerValue(value.value)
+        is LiteralValue.LongLiteral -> PureValue.LongValue(value.value)
+        is LiteralValue.DoubleLiteral -> PureValue.DoubleValue(value.value)
+        is LiteralValue.StringLiteral -> PureValue.StringValue(value.value)
     }
 
     private fun fail(code: DiagnosticCode, span: SourceSpan, message: String): Nothing =

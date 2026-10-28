@@ -52,7 +52,7 @@ data class PrimitiveContract(
         fun fixed(name: String, scheme: TypeScheme, description: String = ""): PrimitiveContract =
             PrimitiveContract(name, scheme, description, null)
 
-        fun dynamic(name: String, rule: PrimitiveTypeRule, description: String = ""): PrimitiveContract =
+        fun withRule(name: String, rule: PrimitiveTypeRule, description: String = ""): PrimitiveContract =
             PrimitiveContract(name, null, description, rule)
     }
 }
@@ -249,7 +249,7 @@ class EnvironmentBuilder internal constructor(base: LanguageEnvironment) {
         name: String,
         rule: PrimitiveTypeRule,
         description: String = "",
-    ): EnvironmentBuilder = addPrimitive(PrimitiveContract.dynamic(name, rule, description))
+    ): EnvironmentBuilder = addPrimitive(PrimitiveContract.withRule(name, rule, description))
 
     fun addObjectConstructor(
         kind: ObjectKind,

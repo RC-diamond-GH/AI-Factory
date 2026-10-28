@@ -133,26 +133,33 @@ class SourceText private constructor(
 
     companion object {
         fun of(name: String, text: String): SourceText {
-            val starts = ArrayList<Int>()
-            starts.add(0)
+            var starts = IntArray(32)
+            var count = 1 // line 1 starts at offset 0
             var index = 0
             while (index < text.length) {
-                when (text[index]) {
+                val nextStart = when (text[index]) {
                     '\r' -> {
                         index++
                         if (index < text.length && text[index] == '\n') index++
-                        starts.add(index)
+                        index
                     }
 
                     '\n' -> {
                         index++
-                        starts.add(index)
+                        index
                     }
 
-                    else -> index++
+                    else -> {
+                        index++
+                        -1
+                    }
+                }
+                if (nextStart >= 0) {
+                    if (count == starts.size) starts = starts.copyOf(starts.size * 2)
+                    starts[count++] = nextStart
                 }
             }
-            return SourceText(name, text, starts.toIntArray())
+            return SourceText(name, text, starts.copyOf(count))
         }
 
         fun of(name: String, text: CharSequence): SourceText = of(name, text.toString())

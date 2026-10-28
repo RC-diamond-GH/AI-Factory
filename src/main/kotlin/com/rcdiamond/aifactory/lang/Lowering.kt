@@ -54,31 +54,31 @@ internal class GraphBuilder(
         return when (expression) {
             is Expr.BooleanLiteral -> emit(
                 LangTypes.BOOLEAN,
-                IrOperation.Constant(LiteralValue.Boolean(expression.value)),
+                IrOperation.Constant(LiteralValue.BooleanLiteral(expression.value)),
                 expression.span,
             )
 
             is Expr.IntegerLiteral -> emit(
                 LangTypes.INTEGER,
-                IrOperation.Constant(LiteralValue.Integer(expression.value)),
+                IrOperation.Constant(LiteralValue.IntegerLiteral(expression.value)),
                 expression.span,
             )
 
             is Expr.LongLiteral -> emit(
                 LangTypes.LONG,
-                IrOperation.Constant(LiteralValue.Long(expression.value)),
+                IrOperation.Constant(LiteralValue.LongLiteral(expression.value)),
                 expression.span,
             )
 
             is Expr.DoubleLiteral -> emit(
                 LangTypes.DOUBLE,
-                IrOperation.Constant(LiteralValue.Double(expression.value)),
+                IrOperation.Constant(LiteralValue.DoubleLiteral(expression.value)),
                 expression.span,
             )
 
             is Expr.StringLiteral -> emit(
                 LangTypes.STRING,
-                IrOperation.Constant(LiteralValue.String(expression.value)),
+                IrOperation.Constant(LiteralValue.StringLiteral(expression.value)),
                 expression.span,
             )
 
