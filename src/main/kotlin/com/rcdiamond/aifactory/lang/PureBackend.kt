@@ -8,6 +8,112 @@ fun interface PurePrimitive {
 /** Error raised by a pure primitive implementation; the evaluator adds the current source span. */
 class PurePrimitiveException(message: String) : RuntimeException(message)
 
+/**
+ * Optional primitive protocol used by the bundled [StandardScalarRuntime] implementations.
+ *
+ * Hosts can keep implementing the plain [PurePrimitive] SAM. Primitives that perform
+ * interpreter-managed work (list traversal, closure application, closure construction) implement
+ * this interface so that the work is charged to the surrounding evaluation budget instead of
+ * silently bypassing [EvaluationLimits].
+ */
+internal interface BoundedPurePrimitive : PurePrimitive {
+    fun invoke(arguments: List<PureValue>, context: EvaluationContext): PureValue
+
+    override fun invoke(arguments: List<PureValue>): PureValue {
+        // Direct host use has no surrounding run; still bound the work with default limits.
+        val context = EvaluationContext(EvaluationBudget(EvaluationLimits.DEFAULT), SourceSpan.EMPTY)
+        return invoke(arguments, context)
+    }
+}
+
+/** A budget plus the source location charged for the current work. */
+internal class EvaluationContext(
+    val budget: EvaluationBudget,
+    val span: SourceSpan,
+)
+
+/**
+ * Per-evaluation resource guard. One instance belongs to one evaluation run (and to every closure
+ * created by it), so no global or thread-local state is involved. Source-returned function values
+ * keep the same budget, which prevents them from escaping the step/depth limits.
+ */
+internal class EvaluationBudget(private val limits: EvaluationLimits) {
+    var steps: Int = 0
+        private set
+
+    private var depth: Int = 0
+
+    fun chargeStep(span: SourceSpan) {
+        if (++steps > limits.maxSteps) {
+            limitFailure(span, "evaluation exceeded the step limit ${limits.maxSteps}")
+        }
+    }
+
+    fun <T> withDepth(span: SourceSpan, block: () -> T): T {
+        if (++depth > limits.maxDepth) {
+            depth--
+            limitFailure(span, "evaluation exceeded the depth limit ${limits.maxDepth}")
+        }
+        try {
+            return block()
+        } finally {
+            depth--
+        }
+    }
+
+    fun checkListSize(size: Int, span: SourceSpan, what: String) {
+        if (size > limits.maxListElements) {
+            limitFailure(
+                span,
+                "$what would materialize $size elements, exceeding the limit ${limits.maxListElements}",
+            )
+        }
+    }
+
+    fun checkListGrowth(existing: Int, added: Int, span: SourceSpan, what: String) {
+        if (existing.toLong() + added.toLong() > limits.maxListElements) {
+            limitFailure(
+                span,
+                "$what would materialize ${existing.toLong() + added.toLong()} elements, " +
+                    "exceeding the limit ${limits.maxListElements}",
+            )
+        }
+    }
+
+    fun checkStringLength(length: Int, span: SourceSpan, what: String) {
+        if (length > limits.maxStringLength) {
+            limitFailure(
+                span,
+                "$what would materialize $length UTF-16 code units, " +
+                    "exceeding the limit ${limits.maxStringLength}",
+            )
+        }
+    }
+
+    fun checkStringGrowth(existing: Int, added: Int, span: SourceSpan, what: String) {
+        if (existing.toLong() + added.toLong() > limits.maxStringLength) {
+            limitFailure(
+                span,
+                "$what would materialize ${existing.toLong() + added.toLong()} UTF-16 code units, " +
+                    "exceeding the limit ${limits.maxStringLength}",
+            )
+        }
+    }
+
+    /** Validates a value produced by an object/function invocation, without walking its contents. */
+    fun checkMaterialized(value: PureValue, span: SourceSpan, what: String) {
+        when (value) {
+            is PureValue.ListValue -> checkListSize(value.elements.size, span, what)
+            is PureValue.StringValue -> checkStringLength(value.value.length, span, what)
+            is PureValue.ObjectValue -> checkListSize(value.arguments.size, span, what)
+            else -> Unit
+        }
+    }
+
+    private fun limitFailure(span: SourceSpan, message: String): Nothing =
+        throw EvaluationFailure(Diagnostic.error(DiagnosticCode.E_LIMIT, span, message))
+}
+
 sealed interface PureValue {
     data class BooleanValue(val value: Boolean) : PureValue
 
@@ -36,7 +142,9 @@ sealed interface PureValue {
         val signature: LangType.FunctionType,
         private val applied: List<PureValue>,
         val requiredArity: Int,
-        private val implementation: (List<PureValue>) -> PureValue,
+        internal val budget: EvaluationBudget,
+        internal val span: SourceSpan,
+        private val implementation: (List<PureValue>, EvaluationContext) -> PureValue,
     ) : PureValue {
         init {
             require(requiredArity >= 0) { "required arity must be non-negative" }
@@ -46,32 +154,41 @@ sealed interface PureValue {
         val appliedArguments: List<PureValue> get() = applied
 
         /** Public test/tooling entry point for completing or extending a partial application. */
-        fun applyTo(argument: PureValue): PureValue = apply(argument)
+        fun applyTo(argument: PureValue): PureValue = apply(argument, span)
 
         /** Invoke a genuinely zero-parameter function value (`Fn() -> R`). */
-        fun callZero(): PureValue = invokeZero()
+        fun callZero(): PureValue = invokeZero(span)
 
-        internal fun apply(argument: PureValue): PureValue {
+        internal fun apply(argument: PureValue, span: SourceSpan = this.span): PureValue {
             if (requiredArity == 0) {
                 throw PurePrimitiveException("cannot apply an argument to a zero-parameter function")
             }
             if (applied.size >= requiredArity) {
                 throw PurePrimitiveException("function is already fully applied")
             }
+            budget.chargeStep(span)
             val next = applied + argument
             return if (next.size == requiredArity) {
-                implementation(next)
+                invoke(span) { implementation(next, it) }
             } else {
-                FunctionValue(shrinkSignature(), next, requiredArity, implementation)
+                FunctionValue(shrinkSignature(), next, requiredArity, budget, this.span, implementation)
             }
         }
 
-        internal fun invokeZero(): PureValue {
+        internal fun invokeZero(span: SourceSpan = this.span): PureValue {
             if (requiredArity != 0) {
                 throw PurePrimitiveException("function requires $requiredArity arguments, not zero")
             }
-            return implementation(emptyList())
+            budget.chargeStep(span)
+            return invoke(span) { implementation(emptyList(), it) }
         }
+
+        private fun invoke(span: SourceSpan, block: (EvaluationContext) -> PureValue): PureValue =
+            budget.withDepth(span) {
+                val value = block(EvaluationContext(budget, span))
+                budget.checkMaterialized(value, span, "function result")
+                value
+            }
 
         private fun shrinkSignature(): LangType.FunctionType {
             val parameters = signature.parameters
@@ -88,22 +205,34 @@ sealed interface PureValue {
             internal fun ofPrimitive(
                 signature: LangType.FunctionType,
                 primitive: PurePrimitive,
+                budget: EvaluationBudget,
+                span: SourceSpan,
             ): FunctionValue = FunctionValue(
                 signature,
                 emptyList(),
                 signature.parameters.size,
-                primitive::invoke,
-            )
+                budget,
+                span,
+            ) { arguments, context ->
+                if (primitive is BoundedPurePrimitive) {
+                    primitive.invoke(arguments, context)
+                } else {
+                    primitive.invoke(arguments)
+                }
+            }
 
             internal fun ofSingleArgument(
                 signature: LangType.FunctionType,
-                implementation: (PureValue) -> PureValue,
+                budget: EvaluationBudget,
+                span: SourceSpan,
+                implementation: (PureValue, EvaluationContext) -> PureValue,
             ): FunctionValue = FunctionValue(
                 signature,
                 emptyList(),
                 1,
-                { arguments -> implementation(arguments[0]) },
-            )
+                budget,
+                span,
+            ) { arguments, context -> implementation(arguments[0], context) }
         }
     }
 
@@ -123,12 +252,21 @@ sealed interface PureValue {
     }
 }
 
-internal fun applyPure(function: PureValue, argument: PureValue): PureValue {
+internal fun applyPure(
+    function: PureValue,
+    argument: PureValue,
+    span: SourceSpan? = null,
+): PureValue {
     val callable = function as? PureValue.FunctionValue
         ?: throw PurePrimitiveException("cannot apply an argument to non-function value $function")
-    return callable.apply(argument)
+    return callable.apply(argument, span ?: callable.span)
 }
 
+/**
+ * Structural equality for equatable values. Functions are not equatable at the language level;
+ * reaching one here (for example through a list) is a runtime contract violation rather than a
+ * silent reference-identity answer.
+ */
 internal fun valuesEqual(left: PureValue, right: PureValue): Boolean = when (left) {
     is PureValue.BooleanValue -> right is PureValue.BooleanValue && left.value == right.value
     is PureValue.IntegerValue -> right is PureValue.IntegerValue && left.value == right.value
@@ -139,8 +277,13 @@ internal fun valuesEqual(left: PureValue, right: PureValue): Boolean = when (lef
         left.elements.size == right.elements.size &&
         left.elements.indices.all { valuesEqual(left.elements[it], right.elements[it]) }
 
-    is PureValue.ObjectValue -> left == right
-    is PureValue.FunctionValue -> left === right
+    is PureValue.ObjectValue -> right is PureValue.ObjectValue &&
+        left.kind == right.kind &&
+        left.typeName == right.typeName &&
+        left.arguments.size == right.arguments.size &&
+        left.arguments.indices.all { valuesEqual(left.arguments[it], right.arguments[it]) }
+
+    is PureValue.FunctionValue -> throw PurePrimitiveException("function values are not equatable")
 }
 
 internal object ScalarOps {
@@ -215,7 +358,7 @@ internal object ScalarOps {
 
         is PureValue.DoubleValue -> {
             val other = right as? PureValue.DoubleValue ?: mismatch(left, right)
-            PureValue.DoubleValue(if (left.value <= other.value) left.value else other.value)
+            PureValue.DoubleValue(Math.min(left.value, other.value))
         }
 
         else -> mismatch(left, right)
@@ -234,7 +377,7 @@ internal object ScalarOps {
 
         is PureValue.DoubleValue -> {
             val other = right as? PureValue.DoubleValue ?: mismatch(left, right)
-            PureValue.DoubleValue(if (left.value >= other.value) left.value else other.value)
+            PureValue.DoubleValue(Math.max(left.value, other.value))
         }
 
         else -> mismatch(left, right)
@@ -391,8 +534,7 @@ private class EvaluationRun(
 ) {
     private val graph = module.graph
     private val memo = HashMap<Int, PureValue>()
-    private var steps = 0
-    private var depth = 0
+    private val budget = EvaluationBudget(limits)
 
     fun evaluate(): PureEvaluation {
         for (input in graph.inputs) {
@@ -419,7 +561,7 @@ private class EvaluationRun(
             }
             outputs[output.name] = value
         }
-        return PureEvaluation(outputs, steps)
+        return PureEvaluation(outputs, budget.steps)
     }
 
     private fun evalRef(reference: IrRef): PureValue = evalNode((reference as IrRef.Node).id)
@@ -428,14 +570,8 @@ private class EvaluationRun(
         memo[id]?.let { return it }
         val node = graph.nodes.getOrNull(id)
             ?: fail(DiagnosticCode.E_TARGET_CONTRACT, SourceSpan.EMPTY, "missing graph node $id")
-        if (++steps > limits.maxSteps) {
-            fail(DiagnosticCode.E_LIMIT, node.span, "evaluation exceeded the step limit ${limits.maxSteps}")
-        }
-        if (++depth > limits.maxDepth) {
-            depth--
-            fail(DiagnosticCode.E_LIMIT, node.span, "evaluation exceeded the depth limit ${limits.maxDepth}")
-        }
-        try {
+        budget.chargeStep(node.span)
+        return budget.withDepth(node.span) {
             val value = try {
                 compute(node)
             } catch (failure: PurePrimitiveException) {
@@ -446,9 +582,7 @@ private class EvaluationRun(
                 )
             }
             memo[id] = value
-            return value
-        } finally {
-            depth--
+            value
         }
     }
 
@@ -464,7 +598,13 @@ private class EvaluationRun(
                     "no pure runtime registered for primitive '${operation.name}'",
                 )
             when (val type = node.type) {
-                is LangType.FunctionType -> PureValue.FunctionValue.ofPrimitive(type, primitive)
+                is LangType.FunctionType -> PureValue.FunctionValue.ofPrimitive(
+                    type,
+                    primitive,
+                    budget,
+                    node.span,
+                )
+
                 else -> {
                     // A named constant primitive (for example an empty domain object) has no
                     // parameters. The runtime supplies its value with an empty argument list.
@@ -476,6 +616,7 @@ private class EvaluationRun(
                             "constant primitive '${operation.name}' produced a value that does not match ${type.display()}",
                         )
                     }
+                    budget.checkMaterialized(value, node.span, "constant primitive '${operation.name}'")
                     value
                 }
             }
@@ -487,16 +628,14 @@ private class EvaluationRun(
             "operator '${operation.id}' requires a native backend",
         )
 
-        is IrOperation.Constant -> constant(operation.value)
+        is IrOperation.Constant -> {
+            val value = constant(operation.value)
+            budget.checkMaterialized(value, node.span, "string literal")
+            value
+        }
 
         is IrOperation.ListLiteral -> {
-            if (operation.elements.size > limits.maxListElements) {
-                fail(
-                    DiagnosticCode.E_LIMIT,
-                    node.span,
-                    "list exceeds the element limit ${limits.maxListElements}",
-                )
-            }
+            budget.checkListSize(operation.elements.size, node.span, "list literal")
             PureValue.ListValue(operation.elements.map { evalRef(it) })
         }
 
@@ -509,7 +648,7 @@ private class EvaluationRun(
                     node.span,
                     "attempted to apply a non-function value",
                 )
-            function.apply(argument)
+            function.apply(argument, node.span)
         }
 
         is IrOperation.Choice -> {
@@ -554,7 +693,29 @@ private class EvaluationRun(
             }
         }
 
-        is IrOperation.Concat -> ScalarOps.concat(evalRef(operation.left), evalRef(operation.right))
+        is IrOperation.Concat -> {
+            val left = evalRef(operation.left)
+            val right = evalRef(operation.right)
+            when {
+                left is PureValue.StringValue && right is PureValue.StringValue ->
+                    budget.checkStringGrowth(
+                        left.value.length,
+                        right.value.length,
+                        node.span,
+                        "string concatenation",
+                    )
+
+                left is PureValue.ListValue && right is PureValue.ListValue ->
+                    budget.checkListGrowth(
+                        left.elements.size,
+                        right.elements.size,
+                        node.span,
+                        "list concatenation",
+                    )
+            }
+            ScalarOps.concat(left, right)
+        }
+
         is IrOperation.Negate -> ScalarOps.negate(evalRef(operation.operand))
 
         is IrOperation.Compose -> {
@@ -569,16 +730,21 @@ private class EvaluationRun(
                 listOf(left.signature.parameters[0]),
                 right.signature.result,
             )
-            PureValue.FunctionValue.ofSingleArgument(signature) { argument ->
-                val intermediate = applyPure(left, argument)
-                applyPure(right, intermediate)
+            PureValue.FunctionValue.ofSingleArgument(signature, budget, node.span) { argument, context ->
+                val intermediate = applyPure(left, argument, context.span)
+                applyPure(right, intermediate, context.span)
             }
         }
 
         is IrOperation.Construct -> {
+            budget.checkListSize(operation.arguments.size, node.span, "object construction")
             val arguments = operation.arguments.map { argument ->
                 when (argument) {
-                    is IrStaticArgument.Text -> PureValue.StringValue(argument.value)
+                    is IrStaticArgument.Text -> {
+                        budget.checkStringLength(argument.value.length, node.span, "object text argument")
+                        PureValue.StringValue(argument.value)
+                    }
+
                     is IrStaticArgument.Integer -> PureValue.IntegerValue(argument.value)
                 }
             }
@@ -642,10 +808,13 @@ object StandardScalarRuntime {
             val position = integer(arguments[1])
             if (position in list.indices) list[position] else arguments[2]
         })
-        put("append", binary { listValue, element ->
-            PureValue.ListValue(list(listValue) + element)
+        put("append", boundedPrimitive { arguments, context ->
+            requireArity(arguments, 2, "append")
+            val values = list(arguments[0])
+            context.budget.checkListGrowth(values.size, 1, context.span, "append")
+            PureValue.ListValue(values + arguments[1])
         })
-        put("slice", PurePrimitive { arguments ->
+        put("slice", boundedPrimitive { arguments, context ->
             requireArity(arguments, 3, "slice")
             val list = list(arguments[0])
             val start = integer(arguments[1])
@@ -653,41 +822,77 @@ object StandardScalarRuntime {
             if (start < 0 || end < start || end > list.size) {
                 throw PurePrimitiveException("invalid slice [$start, $end) for size ${list.size}")
             }
+            context.budget.checkListSize(end - start, context.span, "slice")
             PureValue.ListValue(list.subList(start, end))
         })
-        put("map", binary { function, listValue ->
-            val values = list(listValue)
-            PureValue.ListValue(values.map { applyPure(function, it) })
+        put("map", boundedPrimitive { arguments, context ->
+            requireArity(arguments, 2, "map")
+            val function = arguments[0]
+            val values = list(arguments[1])
+            context.budget.checkListSize(values.size, context.span, "map")
+            val elements = ArrayList<PureValue>(values.size)
+            for (element in values) {
+                context.budget.chargeStep(context.span)
+                elements.add(applyPure(function, element, context.span))
+            }
+            PureValue.ListValue(elements)
         })
-        put("filter", binary { predicate, listValue ->
-            val values = list(listValue)
-            PureValue.ListValue(
-                values.filter { element ->
-                    val result = applyPure(predicate, element) as? PureValue.BooleanValue
-                        ?: throw PurePrimitiveException("filter predicate did not return Boolean")
-                    result.value
-                },
-            )
+        put("filter", boundedPrimitive { arguments, context ->
+            requireArity(arguments, 2, "filter")
+            val predicate = arguments[0]
+            val values = list(arguments[1])
+            // The result cannot be larger than the input, so this bounds the materialization
+            // before the output accumulator is allocated.
+            context.budget.checkListSize(values.size, context.span, "filter")
+            val elements = ArrayList<PureValue>(values.size)
+            for (element in values) {
+                context.budget.chargeStep(context.span)
+                val result = applyPure(predicate, element, context.span) as? PureValue.BooleanValue
+                    ?: throw PurePrimitiveException("filter predicate did not return Boolean")
+                if (result.value) elements.add(element)
+            }
+            PureValue.ListValue(elements)
         })
-        put("reduce", PurePrimitive { arguments ->
+        put("reduce", boundedPrimitive { arguments, context ->
             requireArity(arguments, 3, "reduce")
             val function = arguments[0]
             val values = list(arguments[1])
+            context.budget.checkListSize(values.size, context.span, "reduce")
             var accumulator = arguments[2]
-            for (element in values) accumulator = applyPure(applyPure(function, accumulator), element)
+            for (element in values) {
+                context.budget.chargeStep(context.span)
+                accumulator = applyPure(
+                    applyPure(function, accumulator, context.span),
+                    element,
+                    context.span,
+                )
+            }
             accumulator
         })
         put("identity", unary { it })
-        put("flip", unary { value -> flip(value) })
-        put("call0", unary { value ->
-            val function = value as? PureValue.FunctionValue
-                ?: throw PurePrimitiveException("call0 requires a function")
-            function.invokeZero()
+        put("flip", boundedPrimitive { arguments, context ->
+            requireArity(arguments, 1, "flip")
+            flip(arguments[0], context)
         })
-        put("allOf", binary { first, second -> predicateCombination(first, second, conjunction = true) })
-        put("anyOf", binary { first, second -> predicateCombination(first, second, conjunction = false) })
-        put("negatePred", unary { value -> negatePredicate(value) })
-        put("pipe2", PurePrimitive { arguments ->
+        put("call0", boundedPrimitive { arguments, context ->
+            requireArity(arguments, 1, "call0")
+            val function = arguments[0] as? PureValue.FunctionValue
+                ?: throw PurePrimitiveException("call0 requires a function")
+            function.invokeZero(context.span)
+        })
+        put("allOf", boundedPrimitive { arguments, context ->
+            requireArity(arguments, 2, "allOf")
+            predicateCombination(arguments[0], arguments[1], conjunction = true, context)
+        })
+        put("anyOf", boundedPrimitive { arguments, context ->
+            requireArity(arguments, 2, "anyOf")
+            predicateCombination(arguments[0], arguments[1], conjunction = false, context)
+        })
+        put("negatePred", boundedPrimitive { arguments, context ->
+            requireArity(arguments, 1, "negatePred")
+            negatePredicate(arguments[0], context)
+        })
+        put("pipe2", boundedPrimitive { arguments, context ->
             requireArity(arguments, 3, "pipe2")
             val first = arguments[0] as? PureValue.FunctionValue
                 ?: throw PurePrimitiveException("pipe2 requires function arguments")
@@ -702,10 +907,10 @@ object StandardScalarRuntime {
                 listOf(first.signature.parameters[0]),
                 combiner.signature.result,
             )
-            PureValue.FunctionValue.ofSingleArgument(signature) { argument ->
-                val left = applyPure(first, argument)
-                val right = applyPure(second, argument)
-                applyPure(applyPure(combiner, left), right)
+            PureValue.FunctionValue.ofSingleArgument(signature, context.budget, context.span) { argument, inner ->
+                val left = applyPure(first, argument, inner.span)
+                val right = applyPure(second, argument, inner.span)
+                applyPure(applyPure(combiner, left, inner.span), right, inner.span)
             }
         })
     }
@@ -730,6 +935,13 @@ object StandardScalarRuntime {
             operation(arguments[0])
         }
 
+    private fun boundedPrimitive(
+        operation: (List<PureValue>, EvaluationContext) -> PureValue,
+    ): BoundedPurePrimitive = object : BoundedPurePrimitive {
+        override fun invoke(arguments: List<PureValue>, context: EvaluationContext): PureValue =
+            operation(arguments, context)
+    }
+
     private fun requireArity(arguments: List<PureValue>, expected: Int, name: String) {
         if (arguments.size != expected) {
             throw PurePrimitiveException("$name expected $expected arguments, found ${arguments.size}")
@@ -746,13 +958,14 @@ object StandardScalarRuntime {
         else -> throw PurePrimitiveException("expected an Integer, found $value")
     }
 
-    private fun flip(value: PureValue): PureValue {
+    private fun flip(value: PureValue, context: EvaluationContext): PureValue {
         val function = value as? PureValue.FunctionValue
             ?: throw PurePrimitiveException("flip requires a function")
         val parameters = function.signature.parameters
         if (parameters.size < 2) {
             throw PurePrimitiveException("flip requires a function with at least two parameters")
         }
+        context.budget.checkListSize(parameters.size, context.span, "flip signature")
         val swapped = ArrayList(parameters)
         val first = swapped[0]
         swapped[0] = swapped[1]
@@ -762,13 +975,18 @@ object StandardScalarRuntime {
             signature,
             emptyList(),
             swapped.size,
-        ) { arguments ->
+            context.budget,
+            context.span,
+        ) { arguments, inner ->
             val reordered = ArrayList(arguments)
             val argument = reordered[0]
             reordered[0] = reordered[1]
             reordered[1] = argument
             var current: PureValue = function
-            for (item in reordered) current = applyPure(current, item)
+            for (item in reordered) {
+                inner.budget.chargeStep(inner.span)
+                current = applyPure(current, item, inner.span)
+            }
             current
         }
     }
@@ -777,6 +995,7 @@ object StandardScalarRuntime {
         first: PureValue,
         second: PureValue,
         conjunction: Boolean,
+        context: EvaluationContext,
     ): PureValue {
         val left = first as? PureValue.FunctionValue
             ?: throw PurePrimitiveException("predicate combination requires functions")
@@ -786,13 +1005,17 @@ object StandardScalarRuntime {
         if (signature.parameters.size != 1) {
             throw PurePrimitiveException("predicate must be unary")
         }
-        return PureValue.FunctionValue.ofSingleArgument(signature) { argument ->
-            val leftValue = applyPure(left, argument) as? PureValue.BooleanValue
+        return PureValue.FunctionValue.ofSingleArgument(
+            signature,
+            context.budget,
+            context.span,
+        ) { argument, inner ->
+            val leftValue = applyPure(left, argument, inner.span) as? PureValue.BooleanValue
                 ?: throw PurePrimitiveException("predicate did not return Boolean")
             val result = if ((conjunction && !leftValue.value) || (!conjunction && leftValue.value)) {
                 !conjunction
             } else {
-                val rightValue = applyPure(right, argument) as? PureValue.BooleanValue
+                val rightValue = applyPure(right, argument, inner.span) as? PureValue.BooleanValue
                     ?: throw PurePrimitiveException("predicate did not return Boolean")
                 rightValue.value
             }
@@ -800,14 +1023,18 @@ object StandardScalarRuntime {
         }
     }
 
-    private fun negatePredicate(value: PureValue): PureValue {
+    private fun negatePredicate(value: PureValue, context: EvaluationContext): PureValue {
         val predicate = value as? PureValue.FunctionValue
             ?: throw PurePrimitiveException("negatePred requires a function")
         if (predicate.signature.parameters.size != 1) {
             throw PurePrimitiveException("predicate must be unary")
         }
-        return PureValue.FunctionValue.ofSingleArgument(predicate.signature) { argument ->
-            val result = applyPure(predicate, argument) as? PureValue.BooleanValue
+        return PureValue.FunctionValue.ofSingleArgument(
+            predicate.signature,
+            context.budget,
+            context.span,
+        ) { argument, inner ->
+            val result = applyPure(predicate, argument, inner.span) as? PureValue.BooleanValue
                 ?: throw PurePrimitiveException("predicate did not return Boolean")
             PureValue.BooleanValue(!result.value)
         }
