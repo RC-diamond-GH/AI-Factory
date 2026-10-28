@@ -33,7 +33,7 @@ sealed interface LangType {
         is Variable -> false
     }
 
-    fun containsVariable(): Boolean = !isConcrete
+    fun containsVariable(): Boolean = !isConcrete()
 }
 
 object LangTypes {
