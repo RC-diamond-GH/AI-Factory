@@ -94,6 +94,7 @@ class LanguageParser(
         val annotation = if (match(TokenKind.COLON)) parseType() else null
         expect(TokenKind.EQUALS, "expected '=' after let name '${name.text}'")
         val expression = parseExpression()
+        checkExpressionDepth(expression)
         val semicolon = expect(TokenKind.SEMICOLON, "expected ';' after let declaration")
         return LetDeclaration(
             name.text,
@@ -110,6 +111,7 @@ class LanguageParser(
         val annotation = if (match(TokenKind.COLON)) parseType() else null
         expect(TokenKind.EQUALS, "expected '=' after output name '${name.text}'")
         val expression = parseExpression()
+        checkExpressionDepth(expression)
         val semicolon = expect(TokenKind.SEMICOLON, "expected ';' after output declaration")
         return OutputDeclaration(
             name.text,
@@ -500,6 +502,65 @@ class LanguageParser(
             )
         }
     }
+
+    /**
+     * Bounds the structural depth of a fully parsed expression.
+     *
+     * [nested] only measures grammar recursion, and [guardChain] only measures one chain, so the
+     * two budgets can multiply: a parenthesized chain per nesting level produces an AST whose depth
+     * is far larger than either counter. Every recursive consumer downstream (structural hashing,
+     * type inference, graph lowering) walks the full tree, so the total structural depth is the
+     * authoritative bound. The pass is iterative and runs once per declaration expression,
+     * including expressions of unused `let` bindings.
+     */
+    private fun checkExpressionDepth(expression: Expr) {
+        val pending = ArrayDeque<DepthFrame>()
+        pending.addLast(DepthFrame(expression, 1))
+        while (pending.isNotEmpty()) {
+            val frame = pending.removeLast()
+            if (frame.depth > limits.maxNestingDepth) {
+                throw abort(
+                    DiagnosticCode.E_LIMIT,
+                    frame.expression.span,
+                    "expression structure depth exceeds the limit ${limits.maxNestingDepth}",
+                )
+            }
+            val childDepth = frame.depth + 1
+            when (val node = frame.expression) {
+                is Expr.Binary -> {
+                    pending.addLast(DepthFrame(node.left, childDepth))
+                    pending.addLast(DepthFrame(node.right, childDepth))
+                }
+
+                is Expr.Call -> {
+                    pending.addLast(DepthFrame(node.callee, childDepth))
+                    for (argument in node.arguments) pending.addLast(DepthFrame(argument, childDepth))
+                }
+
+                is Expr.If -> {
+                    pending.addLast(DepthFrame(node.condition, childDepth))
+                    pending.addLast(DepthFrame(node.thenBranch, childDepth))
+                    pending.addLast(DepthFrame(node.elseBranch, childDepth))
+                }
+
+                is Expr.Negate -> pending.addLast(DepthFrame(node.operand, childDepth))
+                is Expr.ListLiteral -> {
+                    for (element in node.elements) pending.addLast(DepthFrame(element, childDepth))
+                }
+
+                is Expr.BooleanLiteral,
+                is Expr.IntegerLiteral,
+                is Expr.LongLiteral,
+                is Expr.DoubleLiteral,
+                is Expr.StringLiteral,
+                is Expr.Name,
+                is Expr.Construct,
+                is Expr.OperatorReference -> Unit
+            }
+        }
+    }
+
+    private class DepthFrame(val expression: Expr, val depth: Int)
 
     private fun foldRight(operands: List<Expr>, operator: BinaryOperator): Expr {
         var result = operands.last()
