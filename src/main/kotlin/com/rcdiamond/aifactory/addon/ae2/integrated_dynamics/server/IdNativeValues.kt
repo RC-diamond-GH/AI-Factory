@@ -29,6 +29,7 @@ import org.cyclops.integrateddynamics.core.evaluate.variable.ValueTypeList
 import org.cyclops.integrateddynamics.core.evaluate.variable.ValueTypeLong
 import org.cyclops.integrateddynamics.core.evaluate.variable.ValueTypeNbt
 import org.cyclops.integrateddynamics.core.evaluate.variable.ValueTypeString
+import java.io.StringReader
 import java.nio.charset.StandardCharsets
 
 /**
@@ -85,7 +86,7 @@ internal object IdNativeValues {
         "NBT" -> {
             val text = string(json, node, "NBT")
             val tag = try {
-                TagParser.parseTag(text)
+                TagParser(StringReader(text)).readValue()
             } catch (_: Exception) {
                 reject(node, IdDiagnosticCode.E_LITERAL_NBT, "NBT literal is not valid SNBT")
             }
