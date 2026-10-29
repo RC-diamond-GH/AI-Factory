@@ -35,12 +35,12 @@
 | `network.SharedSessionNetwork` | 两端 | 有界分片 RPC 与终端打开事件；协议版本 `"7"`；独立端点共享传输，不共享存储或授权 |
 | `client.shared.SharedAgentSessionRuntime` / `SharedAgentProfile` | 客户端 | 每个组合入口独立实例：UUID／哈希缓存、保存确认、后台回合、当前工具 Schema 与无工具自动标题请求 |
 | `client.shared.*` 界面与 HUD | 客户端 | 注入对应运行实例；ME 显示真实元件，ID 显示终端会话而不伪造 ME 元件 |
-| `addon.ae2.*` | 可选集成 | 元件与终端注册、网格授权、库存 / NBT 详情 / 异步合成计划与请求 / 样板容器视图、编码与投放 |
-| `addon.ae2.integrated_dynamics.*` | 可选 ID 集成 | 原生线缆网络成员、终端／引用持久化、独立会话；只读检查、客户端 DSL 编译与服务端原生制卡；无 AE2 API 依赖 |
+| `addon.ae2.*` | 可选 AE2 集成 | 元件与终端注册、网格授权、库存 / NBT 详情 / 异步合成计划与请求 / 样板容器视图、编码与投放 |
+| `addon.integrated_dynamics.*` | 可选 ID 集成 | 与 AE2、JEI 平级；原生线缆网络成员、终端／引用持久化、独立会话；只读检查、客户端 DSL 编译与服务端原生制卡；无 AE2 API 依赖 |
 | `addon.jei.client.tool.*` / `JeiQueryGateway` | 客户端，纯契约 | 材料搜索／配方查询 Schema、参数校验和可替换查询后端；无 JEI API 类型 |
 | `addon.jei.client.integration.*` | 可选 JEI 客户端集成 | JEI 插件发现、runtime 生命周期、公开 API 查询、有界材料引用及展示槽位转换 |
 | `lang.*` | 共享纯 Kotlin 模块 | 类 Haskell 词法／语法、类型合同、依赖图、源码诊断与可扩展后端；不持有 Minecraft、ID 或客户端对象 |
-| `addon.ae2.integrated_dynamics.dsl.*` | 共享纯合同／客户端编译 | 固定原语类型目录、原生卡片 DAG、有限性与源映射；服务端只复用计划／类型验证，不解析源码 |
+| `addon.integrated_dynamics.dsl.*` | 共享纯合同／客户端编译 | 固定原语类型目录、原生卡片 DAG、有限性与源映射；服务端只复用计划／类型验证，不解析源码 |
 
 ID 的 `id_compile` 仅预览；`id_make_cards` 在客户端重新编译后，经现有独占会话发送结构化计划。服务端重新解析网络输入、检查计划和真实资源，然后消耗玩家主背包中的空白变量卡，以 ID 原生 facade／handler 创建卡片。所有依赖卡及输出卡的放置由用户完成；制卡不等于网络已能解析卡片或自动化已经执行。完整语言与工具合同见 [DSL 设计](IntegratedDynamicsDSL设计.md) 和 [使用指南](IntegratedDynamicsDSL使用指南.md)。
 

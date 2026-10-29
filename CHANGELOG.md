@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased — addon package ownership
+
+- Place the independent Integrated Dynamics integration in `com.rcdiamond.aifactory.addon.integrated_dynamics`, alongside AE2 and JEI; reserve `addon.ae2` for AE2.
+- Relocate all 37 production and 11 test files, imports, qualified references and the optional reflective entry point without compatibility aliases. Registry/resource IDs, saved data, network protocol and DSL contracts are unchanged.
+- Verification: the complete build still passes 458 tests. A Java 17 smoke resolves the new entry's static initialization method without invoking Forge, confirms the old entry is absent, and exercises the relocated compiler, plan codec, validator and source-located type error. No game was started.
+
 ## Unreleased — Integrated Dynamics DSL and native card tools
 
 - Reuse the shared functional-language compiler for a typed Haskell-like ID DSL: explicit inputs, monomorphic bindings, higher-order native operators, partial application, composition, lists and conditional card graphs.
