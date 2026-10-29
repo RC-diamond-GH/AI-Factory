@@ -1094,7 +1094,7 @@ output filterFn : Fn(Item) -> Boolean = predicate;
 | 代码 | 职责 |
 |---|---|
 | `com.rcdiamond.aifactory.lang` | 全 Mod 共享的 lexer/parser、类型约束、可达 typed IR、backend SPI 和可选纯求值器；不依赖 Minecraft、Forge 或 ID |
-| `addon/ae2/integrated_dynamics/dsl/IdDslCompiler.kt` | 注入 ID 类型／算子环境，检查 describe 合同，将共享 IR 降成 native card plan，生成客户端 sourceMap |
+| `addon/integrated_dynamics/dsl/IdDslCompiler.kt` | 注入 ID 类型／算子环境，检查 describe 合同，将共享 IR 降成 native card plan，生成客户端 sourceMap |
 | `IdOperatorCatalog.kt` | 固定原语／注册 ID／类型 scheme，以及动态 apply/flip 规则 |
 | `IdDslWire.kt` / `IdPlanValidator.kt` / `IdDslValueBudget.kt` | 严格 JSON codec、有界计量、拓扑／字面量／类型／有限性重算；纯 Kotlin，客户端与服务端均可使用 |
 | `server/IdFacadeTypes.kt` / `IdNativeCatalog.kt` | 从真实网络定义证明输入类型，核对固定合同与实际原生注册表；不调用实时变量 `getValue()` |

@@ -20,7 +20,7 @@ object AIFactory {
                 .getMethod("initialize").invoke(null)
         }
         if (ModList.get().isLoaded("integrateddynamics")) {
-            Class.forName("com.rcdiamond.aifactory.addon.ae2.integrated_dynamics.IntegratedDynamicsAddon")
+            Class.forName("com.rcdiamond.aifactory.addon.integrated_dynamics.IntegratedDynamicsAddon")
                 .getMethod("initialize").invoke(null)
         }
         MOD_BUS.addListener<FMLCommonSetupEvent> {

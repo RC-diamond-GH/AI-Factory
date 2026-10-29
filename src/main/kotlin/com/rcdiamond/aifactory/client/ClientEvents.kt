@@ -1,7 +1,7 @@
 package com.rcdiamond.aifactory.client
 
 import com.rcdiamond.aifactory.AIFactory
-import com.rcdiamond.aifactory.addon.ae2.integrated_dynamics.client.IntegratedDynamicsAgentRuntime
+import com.rcdiamond.aifactory.addon.integrated_dynamics.client.IntegratedDynamicsAgentRuntime
 import com.rcdiamond.aifactory.client.game.ClientGameActions
 import com.rcdiamond.aifactory.client.shared.ClientSharedSessionRuntime
 import com.rcdiamond.aifactory.client.shared.SharedSessionHud
